@@ -23,6 +23,9 @@ fix_owner() { if id "$RUN_AS" &>/dev/null; then chown -R "$RUN_AS:$RUN_AS" "$ROO
 
 echo "==> deploying $COMMIT"
 STAGE=$(mktemp -d)
+# mktemp makes the folder 0700, and `rsync -a "$STAGE/" "$ROOT/"` copies the folder's own mode onto $ROOT:
+# the service user could then no longer enter /opt/aiko-panel at all
+chmod 755 "$STAGE"
 trap 'rm -rf "$STAGE"' EXIT
 tar -xzf "$TARBALL" -C "$STAGE"
 old_webhook=$(sha256sum "$ROOT/deploy/webhook.py" 2>/dev/null | cut -d' ' -f1 || true)

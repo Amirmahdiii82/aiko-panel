@@ -32,7 +32,14 @@ jobs:
           python -m pytest -q
 
       - name: Build release
-        run: git archive --format=tar.gz -o release.tgz HEAD
+        # The tarball carries its own "./" entry (0755, owned by root). The server extracts it into a private
+        # temp folder and rsyncs that folder over /opt/aiko-panel, so the folder's mode is copied too; a server
+        # still running an older deploy.sh would otherwise lock the service user out of the app folder.
+        run: |
+          mkdir release
+          git archive HEAD | tar -x -C release
+          chmod 755 release
+          tar --owner=0 --group=0 --numeric-owner -czf release.tgz -C release .
 
       - name: Send release to server
         env:
