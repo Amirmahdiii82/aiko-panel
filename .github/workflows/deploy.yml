@@ -1,0 +1,56 @@
+# Deploys to the server when any commit in a push to main mentions "#deploy", or when run by hand.
+# The server cannot be reached over SSH from outside and cannot reach GitHub, so the release is pushed to it:
+# a tarball signed with HMAC (secret DEPLOY_SECRET) is POSTed to https://<panel>/__deploy (deploy/webhook.py),
+# which runs deploy/deploy.sh (snapshot → install → migrate → restart → health check → rollback on failure).
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.message, ' '), '#deploy')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Test before shipping
+        run: |
+          pip install -r requirements-dev.txt
+          python -m compileall -q app deploy
+          python -m pytest -q
+
+      - name: Build release
+        run: git archive --format=tar.gz -o release.tgz HEAD
+
+      - name: Send release to server
+        env:
+          DEPLOY_SECRET: ${{ secrets.DEPLOY_SECRET }}
+          DEPLOY_URL: ${{ vars.DEPLOY_URL || 'https://aiko.infinitcode.ir/__deploy' }}
+        run: |
+          sig="sha256=$(openssl dgst -sha256 -hmac "$DEPLOY_SECRET" -r release.tgz | cut -d' ' -f1)"
+          for attempt in 1 2 3; do
+            code=$(curl -sS --http1.1 --max-time 900 -o out.txt -w '%{http_code}' \
+              -X POST --data-binary @release.tgz \
+              -H "Content-Type: application/gzip" \
+              -H "X-Signature: $sig" -H "X-Commit: $GITHUB_SHA" \
+              "$DEPLOY_URL") || code=000
+            cat out.txt 2>/dev/null || true
+            [ "$code" = 200 ] && exit 0
+            echo "attempt $attempt: HTTP $code"
+            # only retry when the request did not reach the server
+            [ "$code" != 000 ] && [ "$code" != 502 ] && exit 1
+            sleep 15
+          done
+          exit 1

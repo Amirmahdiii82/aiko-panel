@@ -1,0 +1,25 @@
+# Aiko Panel behind Caddy (automatic HTTPS). Point the domain's DNS to this server first.
+# HTTP/2 and HTTP/3 hang on some international paths to Iranian servers; HTTP/1.1 is reliable.
+{
+	servers {
+		protocols h1
+	}
+}
+
+aiko.infinitcode.ir {
+	encode gzip
+	request_body {
+		max_size 20MB
+	}
+	# signed release uploads from GitHub Actions (see deploy/webhook.py)
+	reverse_proxy /__deploy 127.0.0.1:9002
+	# live updates (Server-Sent Events) must not be buffered
+	reverse_proxy 127.0.0.1:8020 {
+		flush_interval -1
+	}
+}
+
+# After the cut-over, the old price checker address opens the pricing module of the panel:
+# price.infinitcode.ir {
+# 	redir https://aiko.infinitcode.ir/#/pricing permanent
+# }

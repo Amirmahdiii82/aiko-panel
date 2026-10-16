@@ -1,0 +1,19 @@
+services:
+  aiko-panel:
+    build: .
+    container_name: aiko-panel
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8020"
+      DATA_DIR: /app/data
+    ports:
+      - "127.0.0.1:8020:8020"
+    volumes:
+      - ./data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

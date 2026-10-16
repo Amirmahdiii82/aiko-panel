@@ -1,0 +1,21 @@
+[Unit]
+Description=Aiko Panel (ERP + pricing + media studio) — one process, one worker
+After=network-online.target tcp-mss-clamp.service
+Wants=network-online.target
+
+[Service]
+User=aiko
+Group=aiko
+WorkingDirectory=/opt/aiko-panel
+Environment=TZ=Asia/Tehran
+ExecStart=/opt/aiko-panel/.venv/bin/python -m app serve
+Restart=always
+RestartSec=5
+# graceful stop: let uvicorn finish requests and close SQLite cleanly
+TimeoutStopSec=20
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

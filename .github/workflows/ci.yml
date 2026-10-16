@@ -1,0 +1,29 @@
+# Tests on every push and pull request.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -r requirements-dev.txt
+      - name: Python
+        run: |
+          python -m compileall -q app deploy
+          python -m pytest -q
+      - name: Frontend syntax
+        run: find app -path '*/web/*' -name '*.js' -not -path '*/vendor/*' -print0 | xargs -0 -n1 node --check
+      - name: Shell scripts
+        run: bash -n deploy/deploy.sh deploy/bootstrap-server.sh

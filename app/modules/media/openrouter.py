@@ -1,0 +1,118 @@
+"""Minimal OpenRouter client for video/image generation (key and proxy never reach the browser).
+
+The key and an optional outbound proxy come from the media settings page, falling back to the
+OPENROUTER_API_KEY / OPENROUTER_PROXY_URL environment variables. httpx tunnels HTTPS through an
+HTTP CONNECT (or SOCKS) proxy natively.
+"""
+import json
+import logging
+import time
+
+import httpx
+
+from ...core import config as core_config
+from . import db
+
+log = logging.getLogger("aiko.media.openrouter")
+ORIGIN = core_config.env("OPENROUTER_BASE_URL", "https://openrouter.ai").rstrip("/")  # override only for tests/mocks
+JSON_LIMIT = 2 * 1024 * 1024
+IMAGE_JSON_LIMIT = 64 * 1024 * 1024
+_cache: dict[str, tuple[float, dict]] = {}
+
+
+class UpstreamError(Exception):
+    def __init__(self, status: int, message: str, code: str = "openrouter_error", retry_after: str | None = None):
+        super().__init__(message)
+        self.status, self.code, self.retry_after = status, code, retry_after
+
+
+def settings() -> dict:
+    s = db.database.get_setting("openrouter", {}) or {}
+    return {"api_key": (s.get("api_key") or core_config.env("OPENROUTER_API_KEY")).strip(),
+            "proxy_url": (s.get("proxy_url") if "proxy_url" in s else core_config.env("OPENROUTER_PROXY_URL")).strip(),
+            "monthly_limit_usd": float(s.get("monthly_limit_usd") or 0)}
+
+
+def configured() -> bool:
+    return bool(settings()["api_key"])
+
+
+def _client(timeout: float) -> httpx.AsyncClient:
+    s = settings()
+    if not s["api_key"]:
+        raise UpstreamError(503, "کلید OpenRouter تنظیم نشده است (تنظیمات استودیو).", "missing_api_key")
+    return httpx.AsyncClient(base_url=ORIGIN, timeout=httpx.Timeout(timeout, connect=20), proxy=s["proxy_url"] or None,
+                             headers={"Authorization": f"Bearer {s['api_key']}", "X-Title": "Aiko Panel"},  # header values must be ASCII
+                             follow_redirects=True)
+
+
+def _error_message(resp: httpx.Response) -> str:
+    try:
+        data = resp.json()
+    except ValueError:
+        return f"OpenRouter خطا داد ({resp.status_code})"
+    err = data.get("error") if isinstance(data, dict) else None
+    if isinstance(err, dict):
+        return err.get("message") or json.dumps(err, ensure_ascii=False)[:300]
+    if isinstance(err, str):
+        return err
+    return (data.get("message") if isinstance(data, dict) else None) or f"OpenRouter خطا داد ({resp.status_code})"
+
+
+async def request_json(method: str, path: str, *, body: dict | None = None, timeout: float = 30,
+                       limit: int = JSON_LIMIT) -> dict:
+    try:
+        async with _client(timeout) as client:
+            resp = await client.request(method, path, json=body, headers={"Accept": "application/json"})
+    except httpx.TimeoutException:
+        raise UpstreamError(504, "OpenRouter به‌موقع جواب نداد.", "openrouter_timeout")
+    except httpx.HTTPError as exc:
+        log.warning("OpenRouter unreachable: %s", exc.__class__.__name__)   # never log the proxy URL or key
+        raise UpstreamError(502, "سرور به OpenRouter وصل نشد (پروکسی/اینترنت را بررسی کنید).", "openrouter_unavailable")
+    if len(resp.content) > limit:
+        raise UpstreamError(502, "پاسخ OpenRouter بیش از حد بزرگ بود.", "invalid_upstream_response")
+    if resp.status_code >= 400:
+        raise UpstreamError(resp.status_code, _error_message(resp), retry_after=resp.headers.get("retry-after"))
+    try:
+        return resp.json()
+    except ValueError:
+        raise UpstreamError(502, "پاسخ OpenRouter قابل خواندن نبود.", "invalid_upstream_response")
+
+
+async def cached(path: str, ttl: int = 600) -> dict:
+    hit = _cache.get(path)
+    if hit and time.monotonic() - hit[0] < ttl:
+        return hit[1]
+    data = await request_json("GET", path)
+    _cache[path] = (time.monotonic(), data)
+    return data
+
+
+def clear_cache() -> None:
+    _cache.clear()
+
+
+async def download(path: str, dest, *, timeout: float = 600) -> tuple[str, int]:
+    """Stream generated content to a file. Returns (content_type, bytes)."""
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    size = 0
+    try:
+        async with _client(timeout) as client:
+            async with client.stream("GET", path, headers={"Accept": "video/*, application/octet-stream;q=0.9"}) as resp:
+                if resp.status_code >= 400:
+                    await resp.aread()
+                    raise UpstreamError(resp.status_code, _error_message(resp))
+                ctype = resp.headers.get("content-type", "application/octet-stream").split(";")[0]
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with tmp.open("wb") as f:
+                    async for chunk in resp.aiter_bytes(1024 * 256):
+                        size += len(chunk)
+                        f.write(chunk)
+        tmp.replace(dest)
+        return ctype, size
+    except httpx.HTTPError as exc:
+        tmp.unlink(missing_ok=True)
+        raise UpstreamError(502, f"دانلود از OpenRouter ناموفق بود ({exc.__class__.__name__})", "download_failed")
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise

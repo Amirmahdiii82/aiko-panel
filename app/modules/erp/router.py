@@ -1,0 +1,815 @@
+"""ERP HTTP API (mounted at /api/erp). Login, users, uploads and the live stream are core endpoints."""
+import asyncio
+import secrets
+import shutil
+import tempfile
+from datetime import date, timedelta
+from pathlib import Path
+
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import Response
+
+from ...core import events
+from . import config, db, exporter, importer, ledger, notify, reports, woo
+from .deps import Admin, User
+
+router = APIRouter()
+
+
+# ---------------------------------------------------------------- boot data for the ERP screens
+
+@router.get("/me")
+def me(user=User):
+    with db.read() as con:
+        accounts = db.rows(con.execute("SELECT id, name, kind, partner_id, user_id, active FROM accounts ORDER BY sort, id"))
+        partners = db.rows(con.execute("SELECT * FROM partners ORDER BY id"))
+        users = db.rows(con.execute("SELECT id, name, role, active FROM users WHERE role != '' ORDER BY id"))
+        settings = {k: db.get_setting(k, None, con) for k in
+                    ("shop", "product_categories", "expense_categories", "channel_accounts")}
+        brands = [r[0] for r in con.execute("SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL ORDER BY brand")]
+        suppliers = [r[0] for r in con.execute(
+            "SELECT DISTINCT supplier FROM purchases WHERE supplier IS NOT NULL ORDER BY supplier")]
+        woo_s = db.get_setting("woo", {}, con) or {}
+    if user["role"] != "admin":
+        accounts = [a for a in accounts if a["id"] == user["account_id"]]
+        users = [u for u in users if u["id"] == user["id"]]
+    return {"user": user, "accounts": accounts, "partners": partners, "users": users,
+            "channels": ledger.CHANNELS, "settings": settings, "brands": brands, "suppliers": suppliers,
+            "today": db.today(), "site": {"configured": woo.configured(woo_s), "auto_push": bool(woo_s.get("auto_push")),
+                                          "url": woo_s.get("url")}}
+
+
+# ---------------------------------------------------------------- staff profiles (commission, partner, default account)
+
+@router.get("/staff")
+def staff(user=Admin):
+    with db.read() as con:
+        return db.rows(con.execute(
+            """SELECT u.id, u.username, u.name, u.role, u.active, u.partner_id, u.account_id, u.commission_pct,
+                      a.name AS account_name FROM users u LEFT JOIN accounts a ON a.id = u.account_id
+               WHERE u.role != '' ORDER BY u.active DESC, u.id"""))
+
+
+@router.put("/staff/{user_id}")
+async def staff_update(user_id: int, request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        u = db.one(con.execute("SELECT * FROM users WHERE id = ?", (user_id,)))
+        if not u or not u["role"]:
+            raise HTTPException(404, "این کاربر به حسابداری دسترسی ندارد")
+        ledger_profile(con, user_id, u["name"], u["role"], body)
+    return {"ok": True}
+
+
+def ledger_profile(con, user_id: int, name: str, role: str, profile: dict) -> None:
+    """Create/update the ERP profile of a user. Sellers always get their own "money held by" account."""
+    row = db.one(con.execute("SELECT * FROM staff WHERE user_id = ?", (user_id,))) or {}
+    partner_id = profile.get("partner_id", row.get("partner_id"))
+    commission = float(profile.get("commission_pct", row.get("commission_pct") or 0) or 0)
+    account_id = profile.get("account_id", row.get("account_id"))
+    if role == "seller":
+        account_id = ledger.ensure_agent_account(con, user_id, name)
+        partner_id = None
+    con.execute("""INSERT INTO staff (user_id, partner_id, account_id, commission_pct) VALUES (?, ?, ?, ?)
+                   ON CONFLICT(user_id) DO UPDATE SET partner_id = excluded.partner_id, account_id = excluded.account_id,
+                   commission_pct = excluded.commission_pct""",
+                (user_id, partner_id or None, account_id or None, commission))
+    con.execute("UPDATE accounts SET name = ? WHERE kind = 'agent' AND user_id = ?", (f"پول نزد {name}", user_id))
+
+
+
+
+
+# ---------------------------------------------------------------- dashboard, activity, live stream
+
+
+@router.get("/dashboard")
+def dashboard(user=User):
+    with db.read() as con:
+        if user["role"] != "admin":
+            return seller_home(con, user)
+        return reports.dashboard(con, user)
+
+
+def seller_home(con, user) -> dict:
+    today = db.today()
+    start = (date.fromisoformat(today) - timedelta(days=30)).isoformat()
+    sales = db.rows(con.execute(
+        """SELECT id, code, date, total, channel, customer_name, status FROM sales
+           WHERE seller_id = ? AND date >= ? ORDER BY id DESC LIMIT 30""", (user["id"], start)))
+    held = 0
+    if user["account_id"]:
+        held = con.execute("SELECT IFNULL(SUM(amount), 0) FROM money_flows WHERE account_id = ?",
+                           (user["account_id"],)).fetchone()[0]
+    month = sum(s["total"] for s in sales if s["status"] == "done")
+    commission = con.execute("SELECT IFNULL(SUM(commission), 0) FROM sales WHERE seller_id = ? AND status = 'done' AND date >= ?",
+                             (user["id"], start)).fetchone()[0]
+    return {"seller": True, "sales": sales, "held": int(held), "month_total": month, "commission": int(commission)}
+
+
+# ---------------------------------------------------------------- products
+
+SELLER_PRODUCT_FIELDS = ("id", "sku", "name", "brand", "category", "price", "stock", "low_stock", "image", "woo_id",
+                         "woo_state", "active")
+
+
+@router.get("/products")
+def products(q: str = "", include_inactive: bool = False, user=User):
+    sql = """SELECT p.*,
+                    (SELECT IFNULL(SUM(i.qty), 0) FROM sale_items i JOIN sales s ON s.id = i.sale_id
+                      WHERE i.product_id = p.id AND s.status = 'done' AND s.date >= date('now', '-30 day')) AS sold_30,
+                    (SELECT IFNULL(SUM(i.qty), 0) FROM sale_items i JOIN sales s ON s.id = i.sale_id
+                      WHERE i.product_id = p.id AND s.status = 'done') AS sold_total
+             FROM products p WHERE 1 = 1"""
+    args: list = []
+    if not include_inactive:
+        sql += " AND p.active = 1"
+    if q.strip():
+        sql += " AND (p.name LIKE ? OR p.sku LIKE ? OR p.brand LIKE ?)"
+        like = f"%{q.strip()}%"
+        args += [like, like, like]
+    sql += " ORDER BY p.active DESC, p.name"
+    with db.read() as con:
+        rows = db.rows(con.execute(sql, args))
+    if user["role"] != "admin":
+        rows = [{k: r[k] for k in SELLER_PRODUCT_FIELDS} for r in rows]
+    return rows
+
+
+@router.get("/products/{product_id}")
+def product_detail(product_id: int, user=User):
+    with db.read() as con:
+        p = ledger.get_product(con, product_id)
+        moves = db.rows(con.execute(
+            """SELECT m.*, u.name AS user_name,
+                      CASE m.ref_type WHEN 'sale' THEN (SELECT code FROM sales WHERE id = m.ref_id)
+                                      WHEN 'purchase' THEN (SELECT code FROM purchases WHERE id = m.ref_id) END AS ref_code
+               FROM stock_moves m LEFT JOIN users u ON u.id = m.user_id
+               WHERE m.product_id = ? ORDER BY m.id DESC LIMIT 150""", (product_id,)))
+        stats = db.one(con.execute(
+            """SELECT IFNULL(SUM(i.qty), 0) AS qty, IFNULL(SUM(i.line_total), 0) AS revenue,
+                      IFNULL(SUM(i.line_total - i.qty * i.unit_cost), 0) AS profit, MAX(s.date) AS last_sale
+               FROM sale_items i JOIN sales s ON s.id = i.sale_id WHERE i.product_id = ? AND s.status = 'done'""",
+            (product_id,)))
+    if user["role"] != "admin":
+        return {"product": {k: p[k] for k in SELLER_PRODUCT_FIELDS}, "moves": [], "stats": None}
+    return {"product": p, "moves": moves, "stats": stats}
+
+
+@router.post("/products")
+async def create_product(request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        pid = ledger.create_product(con, body, user["id"])
+    return {"id": pid}
+
+
+@router.put("/products/{product_id}")
+async def update_product(product_id: int, request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        ledger.update_product(con, product_id, body, user["id"])
+    return {"ok": True}
+
+
+@router.post("/products/{product_id}/adjust")
+async def adjust(product_id: int, request: Request, user=Admin):
+    body = await request.json()
+    set_to = body.get("set_to")
+    with db.tx() as con:
+        p = ledger.adjust_stock(con, product_id, set_to=int(set_to) if set_to is not None else None,
+                                delta=int(body.get("delta") or 0), reason=body.get("reason") or "", user=user)
+    return {"stock": p["stock"]}
+
+
+@router.post("/products/{product_id}/split")
+async def split(product_id: int, request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        ids = ledger.split_product(con, product_id, body.get("variants") or [], user)
+    return {"ids": ids}
+
+
+@router.post("/products/{product_id}/push")
+def push_product(product_id: int, user=Admin):
+    with db.tx() as con:
+        p = ledger.get_product(con, product_id)
+        if not p["woo_id"]:
+            raise ledger.LedgerError("این محصول به سایت وصل نیست")
+        con.execute("UPDATE products SET woo_state = 'pending' WHERE id = ?", (product_id,))
+    _push_soon()
+    return {"ok": True}
+
+
+@router.post("/products/{product_id}/use-site-stock")
+def use_site_stock(product_id: int, user=Admin):
+    with db.tx() as con:
+        p = ledger.get_product(con, product_id)
+        if p["woo_stock"] is None:
+            raise ledger.LedgerError("موجودی سایت معلوم نیست؛ اول «خواندن محصولات سایت» را با کلیدهای API بزنید")
+        ledger.adjust_stock(con, product_id, set_to=int(p["woo_stock"]), reason="هماهنگ با موجودی سایت", user=user)
+        con.execute("UPDATE products SET woo_state = 'ok' WHERE id = ?", (product_id,))
+    return {"ok": True}
+
+
+def _push_soon() -> None:
+    """Push pending stock now, even when automatic sync is off (an explicit user action)."""
+    async def run():
+        try:
+            await woo.push_pending()
+        except Exception as exc:  # shown in the site log
+            woo.wlog("push_stock", False, str(exc))
+    events.run_soon(run)
+
+
+# ---------------------------------------------------------------- sales
+
+
+@router.get("/sales")
+def sales(start: str = "", end: str = "", channel: str = "", q: str = "", status: str = "", seller_id: int = 0,
+          unpaid: bool = False, limit: int = 300, user=User):
+    sql = """SELECT s.*, u.name AS seller_name, a.name AS account_name,
+                    (SELECT GROUP_CONCAT(i.qty || '× ' || i.name, ' ، ') FROM sale_items i WHERE i.sale_id = s.id) AS items_text,
+                    (SELECT SUM(i.qty) FROM sale_items i WHERE i.sale_id = s.id) AS items_count
+             FROM sales s LEFT JOIN users u ON u.id = s.seller_id LEFT JOIN accounts a ON a.id = s.account_id WHERE 1 = 1"""
+    args: list = []
+    if start:
+        sql += " AND s.date >= ?"
+        args.append(start)
+    if end:
+        sql += " AND s.date <= ?"
+        args.append(end)
+    if channel:
+        sql += " AND s.channel = ?"
+        args.append(channel)
+    if status:
+        sql += " AND s.status = ?"
+        args.append(status)
+    if unpaid:
+        sql += " AND s.paid = 0 AND s.status = 'done'"
+    if user["role"] != "admin":
+        sql += " AND s.seller_id = ?"
+        args.append(user["id"])
+    elif seller_id:
+        sql += " AND s.seller_id = ?"
+        args.append(seller_id)
+    if q.strip():
+        like = f"%{q.strip()}%"
+        sql += """ AND (s.code LIKE ? OR s.customer_name LIKE ? OR s.customer_phone LIKE ? OR s.note LIKE ?
+                   OR EXISTS (SELECT 1 FROM sale_items i WHERE i.sale_id = s.id AND i.name LIKE ?))"""
+        args += [like] * 5
+    sql += " ORDER BY s.date DESC, s.id DESC LIMIT ?"
+    args.append(min(limit, 2000))
+    with db.read() as con:
+        rows = db.rows(con.execute(sql, args))
+    if user["role"] != "admin":
+        for r in rows:
+            r.pop("cogs", None)
+    return rows
+
+
+@router.get("/sales/{sale_id}")
+def sale_detail(sale_id: int, user=User):
+    with db.read() as con:
+        sale = db.one(con.execute(
+            """SELECT s.*, u.name AS seller_name, a.name AS account_name, c.name AS created_by_name
+               FROM sales s LEFT JOIN users u ON u.id = s.seller_id LEFT JOIN accounts a ON a.id = s.account_id
+               LEFT JOIN users c ON c.id = s.created_by WHERE s.id = ?""", (sale_id,)))
+        if not sale or (user["role"] != "admin" and sale["seller_id"] != user["id"]):
+            raise HTTPException(404, "فروش پیدا نشد")
+        items = db.rows(con.execute(
+            """SELECT i.*, p.image, p.sku, p.stock FROM sale_items i LEFT JOIN products p ON p.id = i.product_id
+               WHERE i.sale_id = ? ORDER BY i.id""", (sale_id,)))
+    if user["role"] != "admin":
+        sale.pop("cogs", None)
+        for i in items:
+            i.pop("unit_cost", None)
+    return {"sale": sale, "items": items}
+
+
+@router.post("/sales")
+async def create_sale(request: Request, user=User):
+    body = await request.json()
+    if user["role"] != "admin":
+        today = date.fromisoformat(db.today())
+        day = body.get("date") or today.isoformat()
+        if not (today - timedelta(days=3)).isoformat() <= day[:10] <= today.isoformat():
+            raise HTTPException(400, "فقط فروش‌های سه روز اخیر را می‌توانید ثبت کنید")
+        body.update(seller_id=user["id"], account_id=user["account_id"])
+        if body.get("channel") not in ("in_person", "instagram", "agent", "other"):
+            body["channel"] = "agent"
+        body.pop("code", None)
+        body.pop("total", None)
+        body.pop("woo_order_id", None)
+    else:
+        body.pop("woo_order_id", None)
+        if not body.get("account_id"):
+            body["account_id"] = (db.get_setting("channel_accounts", {}) or {}).get(body.get("channel") or "in_person")
+    with db.tx() as con:
+        sale_id = ledger.create_sale(con, body, user)
+    return {"id": sale_id}
+
+
+@router.put("/sales/{sale_id}")
+async def update_sale(sale_id: int, request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        ledger.update_sale(con, sale_id, body, user)
+    return {"ok": True}
+
+
+@router.post("/sales/{sale_id}/void")
+async def void_sale(sale_id: int, request: Request, user=User):
+    body = await request.json()
+    with db.tx() as con:
+        sale = db.one(con.execute("SELECT * FROM sales WHERE id = ?", (sale_id,)))
+        if not sale:
+            raise HTTPException(404, "فروش پیدا نشد")
+        if user["role"] != "admin":
+            # a seller can undo their own sale for 15 minutes (typo, wrong product, ...)
+            from datetime import datetime
+            age = datetime.now(db.TZ) - datetime.fromisoformat(sale["created_at"])
+            if sale["seller_id"] != user["id"] or age > timedelta(minutes=15):
+                raise HTTPException(403, "برای ابطال این فروش با مدیر هماهنگ کنید")
+        ledger.void_sale(con, sale_id, user, body.get("reason") or "")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- purchases
+
+
+@router.get("/purchases")
+def purchases(start: str = "", end: str = "", q: str = "", user=Admin):
+    sql = """SELECT p.*, a.name AS account_name,
+                    (SELECT GROUP_CONCAT(i.qty || '× ' || pr.name, ' ، ') FROM purchase_items i
+                       JOIN products pr ON pr.id = i.product_id WHERE i.purchase_id = p.id) AS items_text,
+                    (SELECT SUM(i.qty) FROM purchase_items i WHERE i.purchase_id = p.id) AS items_count
+             FROM purchases p LEFT JOIN accounts a ON a.id = p.account_id WHERE 1 = 1"""
+    args: list = []
+    if start:
+        sql += " AND p.date >= ?"
+        args.append(start)
+    if end:
+        sql += " AND p.date <= ?"
+        args.append(end)
+    if q.strip():
+        like = f"%{q.strip()}%"
+        sql += """ AND (p.code LIKE ? OR p.supplier LIKE ? OR p.note LIKE ? OR EXISTS (SELECT 1 FROM purchase_items i
+                   JOIN products pr ON pr.id = i.product_id WHERE i.purchase_id = p.id AND pr.name LIKE ?))"""
+        args += [like] * 4
+    sql += " ORDER BY p.date DESC, p.id DESC LIMIT 1000"
+    with db.read() as con:
+        return db.rows(con.execute(sql, args))
+
+
+@router.get("/purchases/{purchase_id}")
+def purchase_detail(purchase_id: int, user=Admin):
+    with db.read() as con:
+        pur = db.one(con.execute("""SELECT p.*, a.name AS account_name, u.name AS created_by_name FROM purchases p
+                                    LEFT JOIN accounts a ON a.id = p.account_id LEFT JOIN users u ON u.id = p.created_by
+                                    WHERE p.id = ?""", (purchase_id,)))
+        if not pur:
+            raise HTTPException(404, "خرید پیدا نشد")
+        items = db.rows(con.execute("""SELECT i.*, pr.name, pr.image, pr.sku FROM purchase_items i
+                                       JOIN products pr ON pr.id = i.product_id WHERE i.purchase_id = ?""", (purchase_id,)))
+    return {"purchase": pur, "items": items}
+
+
+@router.post("/purchases")
+async def create_purchase(request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        pid = ledger.create_purchase(con, body, user)
+    return {"id": pid}
+
+
+@router.post("/purchases/{purchase_id}/void")
+def void_purchase(purchase_id: int, user=Admin):
+    with db.tx() as con:
+        ledger.void_purchase(con, purchase_id, user)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- expenses
+
+
+@router.get("/expenses")
+def expenses(start: str = "", end: str = "", category: str = "", account_id: int = 0, q: str = "",
+             include_inventory: bool = True, user=Admin):
+    sql = """SELECT e.*, a.name AS account_name, u.name AS created_by_name FROM expenses e
+             LEFT JOIN accounts a ON a.id = e.account_id LEFT JOIN users u ON u.id = e.created_by WHERE 1 = 1"""
+    args: list = []
+    for cond, val in (("e.date >= ?", start), ("e.date <= ?", end), ("e.category = ?", category)):
+        if val:
+            sql += f" AND {cond}"
+            args.append(val)
+    if account_id:
+        sql += " AND e.account_id = ?"
+        args.append(account_id)
+    if not include_inventory:
+        sql += " AND e.is_inventory = 0"
+    if q.strip():
+        like = f"%{q.strip()}%"
+        sql += " AND (e.description LIKE ? OR e.note LIKE ? OR e.category LIKE ? OR e.code LIKE ?)"
+        args += [like] * 4
+    sql += " ORDER BY e.date DESC, e.id DESC LIMIT 2000"
+    with db.read() as con:
+        return db.rows(con.execute(sql, args))
+
+
+@router.post("/expenses")
+async def create_expense(request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        eid = ledger.save_expense(con, body, user)
+    return {"id": eid}
+
+
+@router.put("/expenses/{expense_id}")
+async def update_expense(expense_id: int, request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        ledger.save_expense(con, body, user, expense_id)
+    return {"ok": True}
+
+
+@router.delete("/expenses/{expense_id}")
+def delete_expense(expense_id: int, user=Admin):
+    with db.tx() as con:
+        e = db.one(con.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,)))
+        if not e:
+            raise HTTPException(404, "هزینه پیدا نشد")
+        if e["sale_id"]:
+            raise ledger.LedgerError("این پورسانت خودکار است؛ با ابطال فروش حذف می‌شود")
+        con.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+        notify.activity(con, "expense_delete", f"هزینه حذف شد: {e['category']}",
+                        f"{ledger.toman(e['amount'])} — {e['description'] or ''} ({user['name']})", user_id=user["id"],
+                        level="warning")
+        notify.publish_after(con, {"type": "refresh", "scope": "expenses"})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- money
+
+
+@router.get("/money")
+def money(user=Admin):
+    with db.read() as con:
+        return {
+            **ledger.summary_money(con),
+            "partners": ledger.partner_positions(con),
+            "capital": db.rows(con.execute("""SELECT c.*, p.name AS partner_name, a.name AS account_name FROM capital c
+                                              JOIN partners p ON p.id = c.partner_id LEFT JOIN accounts a ON a.id = c.account_id
+                                              ORDER BY c.date DESC, c.id DESC LIMIT 200""")),
+            "transfers": db.rows(con.execute("""SELECT t.*, fa.name AS from_name, ta.name AS to_name FROM transfers t
+                                                JOIN accounts fa ON fa.id = t.from_account JOIN accounts ta ON ta.id = t.to_account
+                                                ORDER BY t.date DESC, t.id DESC LIMIT 200""")),
+        }
+
+
+@router.get("/accounts/{account_id}/flows")
+def account_flows(account_id: int, user=Admin):
+    with db.read() as con:
+        rows = db.rows(con.execute(
+            """SELECT f.*,
+                 CASE f.src
+                   WHEN 'sale' THEN (SELECT code || ' — ' || IFNULL(customer_name, '') FROM sales WHERE id = f.ref_id)
+                   WHEN 'purchase' THEN (SELECT code || ' — ' || IFNULL(supplier, '') FROM purchases WHERE id = f.ref_id)
+                   WHEN 'expense' THEN (SELECT category || ' — ' || IFNULL(description, '') FROM expenses WHERE id = f.ref_id)
+                   WHEN 'capital' THEN (SELECT CASE kind WHEN 'in' THEN 'آورده ' ELSE 'برداشت ' END || p.name
+                                        FROM capital c JOIN partners p ON p.id = c.partner_id WHERE c.id = f.ref_id)
+                   WHEN 'transfer' THEN (SELECT fa.name || ' ← ' || ta.name || IFNULL(' — ' || t.note, '') FROM transfers t
+                                         JOIN accounts fa ON fa.id = t.from_account JOIN accounts ta ON ta.id = t.to_account
+                                         WHERE t.id = f.ref_id)
+                 END AS label
+               FROM money_flows f WHERE f.account_id = ? ORDER BY f.date, f.src, f.ref_id""", (account_id,)))
+    running = 0
+    for r in rows:
+        running += r["amount"]
+        r["running"] = running
+    rows.reverse()
+    return rows
+
+
+@router.post("/accounts")
+async def create_account(request: Request, user=Admin):
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name or body.get("kind") not in ("shop", "partner"):
+        raise ledger.LedgerError("نام و نوع حساب را وارد کنید")
+    with db.tx() as con:
+        cur = con.execute("INSERT INTO accounts (name, kind, partner_id, note, sort) VALUES (?, ?, ?, ?, 20)",
+                          (name, body["kind"], body.get("partner_id") if body["kind"] == "partner" else None,
+                           (body.get("note") or "").strip() or None))
+    return {"id": cur.lastrowid}
+
+
+@router.put("/accounts/{account_id}")
+async def update_account(account_id: int, request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        acc = db.one(con.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)))
+        if not acc:
+            raise HTTPException(404, "حساب پیدا نشد")
+        kind = body.get("kind", acc["kind"])
+        if acc["kind"] == "agent":
+            kind = "agent"
+        con.execute("UPDATE accounts SET name = ?, kind = ?, partner_id = ?, note = ?, active = ? WHERE id = ?",
+                    ((body.get("name") or acc["name"]).strip(), kind,
+                     body.get("partner_id", acc["partner_id"]) if kind == "partner" else None,
+                     body.get("note", acc["note"]), 1 if body.get("active", acc["active"]) else 0, account_id))
+        notify.publish_after(con, {"type": "refresh", "scope": "money"})
+    return {"ok": True}
+
+
+@router.post("/capital")
+async def create_capital(request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        cid = ledger.save_capital(con, body, user)
+    return {"id": cid}
+
+
+@router.delete("/capital/{capital_id}")
+def delete_capital(capital_id: int, user=Admin):
+    with db.tx() as con:
+        con.execute("DELETE FROM capital WHERE id = ?", (capital_id,))
+        notify.activity(con, "capital_delete", "یک ردیف آورده/برداشت حذف شد", f"توسط {user['name']}",
+                        user_id=user["id"], level="warning")
+        notify.publish_after(con, {"type": "refresh", "scope": "money"})
+    return {"ok": True}
+
+
+@router.post("/transfers")
+async def create_transfer(request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        tid = ledger.save_transfer(con, body, user)
+    return {"id": tid}
+
+
+@router.delete("/transfers/{transfer_id}")
+def delete_transfer(transfer_id: int, user=Admin):
+    with db.tx() as con:
+        con.execute("DELETE FROM transfers WHERE id = ?", (transfer_id,))
+        notify.activity(con, "transfer_delete", "یک انتقال/تسویه حذف شد", f"توسط {user['name']}",
+                        user_id=user["id"], level="warning")
+        notify.publish_after(con, {"type": "refresh", "scope": "money"})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- reports
+
+
+@router.get("/reports")
+def report(period: str = "month", start: str = "", end: str = "", user=Admin):
+    s, e, label = reports.period_bounds(period, start, end)
+    with db.read() as con:
+        return reports.report(con, s, e, label)
+
+
+# ---------------------------------------------------------------- WooCommerce
+
+
+def _woo_public(s: dict) -> dict:
+    out = {k: v for k, v in s.items() if k not in ("secret", "webhook_secret")}
+    out["secret_set"] = bool(s.get("secret"))
+    out["webhook_secret"] = s.get("webhook_secret") or ""
+    return out
+
+
+@router.get("/woo")
+def woo_status(request: Request, user=Admin):
+    s = woo.settings()
+    with db.read() as con:
+        counts = db.one(con.execute(
+            """SELECT COUNT(*) AS products, SUM(CASE WHEN woo_id IS NOT NULL THEN 1 ELSE 0 END) AS linked,
+                      SUM(CASE WHEN woo_state = 'pending' THEN 1 ELSE 0 END) AS pending,
+                      SUM(CASE WHEN woo_state = 'error' THEN 1 ELSE 0 END) AS errors,
+                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_stock IS NOT NULL AND woo_stock != MAX(stock, 0)
+                          THEN 1 ELSE 0 END) AS mismatched
+               FROM products WHERE active = 1"""))
+        logs = db.rows(con.execute("SELECT * FROM woo_log ORDER BY id DESC LIMIT 40"))
+    base = config.PUBLIC_URL or str(request.base_url).rstrip("/")
+    catalog = db.get_setting("woo_catalog", {}) or {}
+    return {"settings": _woo_public(s), "configured": woo.configured(s), "counts": counts, "log": logs,
+            "webhook_url": f"{base}/api/erp/woo/webhook", "catalog_fetched_at": catalog.get("fetched_at"),
+            "catalog_source": catalog.get("source")}
+
+
+@router.put("/woo")
+async def woo_save(request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        s = db.get_setting("woo", {}, con) or {}
+        for key in ("url", "key", "query_auth", "auto_push", "pull_minutes", "webhook_secret"):
+            if key in body:
+                s[key] = body[key].strip().rstrip("/") if isinstance(body[key], str) else body[key]
+        if body.get("secret"):
+            s["secret"] = body["secret"].strip()
+        if not s.get("webhook_secret"):
+            s["webhook_secret"] = secrets.token_urlsafe(24)
+        turning_on = body.get("auto_push") and not db.get_setting("woo", {}, con).get("auto_push")
+        db.set_setting("woo", s, con)
+        if turning_on:
+            notify.activity(con, "woo", "همگام‌سازی خودکار موجودی سایت روشن شد", f"توسط {user['name']}",
+                            user_id=user["id"], level="success")
+    woo.wake()
+    return _woo_public(s)
+
+
+@router.post("/woo/test")
+async def woo_test(user=Admin):
+    s = woo.settings()
+    result = await woo.test_connection(s)
+    with db.tx() as con:
+        saved = db.get_setting("woo", {}, con) or {}
+        if result.get("currency"):
+            saved["currency"] = result["currency"]
+        if not saved.get("last_order_sync"):
+            from datetime import datetime, timezone
+            saved["last_order_sync"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        db.set_setting("woo", saved, con)
+    woo.wlog("test", True, f"اتصال برقرار شد — {result.get('products')} محصول، واحد پول: {result.get('currency')}")
+    return result
+
+
+@router.post("/woo/catalog/refresh")
+async def woo_catalog_refresh(user=Admin):
+    catalog = await woo.fetch_catalog()
+    woo.wlog("catalog", True, f"{len(catalog['items'])} محصول/رنگ از سایت خوانده شد ({catalog['source']})")
+    return {"count": len(catalog["items"]), "source": catalog["source"]}
+
+
+@router.get("/woo/catalog")
+def woo_catalog(user=Admin):
+    catalog = db.get_setting("woo_catalog", {}) or {}
+    with db.read() as con:
+        linked = db.rows(con.execute(
+            """SELECT id, sku, name, stock, price, image, woo_id, woo_variation_id, woo_name, woo_url, woo_state,
+                      woo_error, woo_stock, woo_synced_at FROM products WHERE active = 1 AND woo_id IS NOT NULL ORDER BY name"""))
+        sugg = woo.suggestions(con, catalog) if catalog.get("items") else []
+    used = {(p["woo_id"], p["woo_variation_id"]) for p in linked}
+    whole_linked = {w for w, v in used if v is None}          # product linked as a whole: its colors are covered
+    color_linked = {w for w, v in used if v is not None}      # some colors linked: the whole product is not offered
+    items = catalog.get("items") or []
+    unlinked_site = [e for e in items if (e["woo_id"], e["variation_id"]) not in used
+                     and not (e["variation_id"] and e["woo_id"] in whole_linked)
+                     and not (e["variation_id"] is None and e["woo_id"] in color_linked)]
+    return {"fetched_at": catalog.get("fetched_at"), "source": catalog.get("source"), "items": items,
+            "linked": linked, "suggestions": sugg, "unlinked_site": unlinked_site}
+
+
+@router.post("/woo/link")
+async def woo_link(request: Request, user=Admin):
+    body = await request.json()
+    links = body.get("links") or [body]
+    catalog = db.get_setting("woo_catalog", {}) or {}
+    done, skipped = 0, []
+    with db.tx() as con:
+        for link in links:
+            try:
+                woo.link_product(con, int(link["product_id"]), int(link["woo_id"]),
+                                 int(link["variation_id"]) if link.get("variation_id") else None, catalog)
+                done += 1
+            except ledger.LedgerError as exc:
+                if len(links) == 1:
+                    raise
+                skipped.append(str(exc))
+        notify.activity(con, "woo_link", f"{ledger.fa(done)} محصول به سایت وصل شد", f"توسط {user['name']}",
+                        user_id=user["id"])
+    return {"ok": True, "count": done, "skipped": skipped}
+
+
+@router.post("/woo/unlink")
+async def woo_unlink(request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        con.execute("""UPDATE products SET woo_id = NULL, woo_variation_id = NULL, woo_name = NULL, woo_state = NULL,
+                       woo_error = NULL, woo_stock = NULL WHERE id = ?""", (int(body["product_id"]),))
+        notify.publish_after(con, {"type": "refresh", "scope": "products"})
+    return {"ok": True}
+
+
+@router.post("/woo/import-products")
+async def woo_import_products(request: Request, user=Admin):
+    """Create products here for site products that do not exist yet (e.g. new arrivals)."""
+    body = await request.json()
+    wanted = {(int(x["woo_id"]), int(x["variation_id"]) if x.get("variation_id") else None) for x in body.get("items") or []}
+    catalog = db.get_setting("woo_catalog", {}) or {}
+    created = 0
+    with db.tx() as con:
+        for e in catalog.get("items") or []:
+            if (e["woo_id"], e["variation_id"]) not in wanted:
+                continue
+            ledger.create_product(con, {
+                "name": e["name"], "price": e["price"], "image": e["image"], "woo_id": e["woo_id"],
+                "woo_variation_id": e["variation_id"], "woo_name": e["name"], "woo_url": e["url"],
+                "stock": e["stock"] if isinstance(e.get("stock"), int) and e["stock"] > 0 else 0,
+            }, user["id"], quiet=True)
+            created += 1
+        notify.activity(con, "woo_import", f"{ledger.fa(created)} محصول از سایت ساخته شد",
+                        "قیمت خرید و موجودی این‌ها را کامل کنید.", user_id=user["id"], link="#/products")
+    return {"created": created}
+
+
+@router.post("/woo/push-all")
+def woo_push_all(user=Admin):
+    with db.tx() as con:
+        n = con.execute("UPDATE products SET woo_state = 'pending' WHERE active = 1 AND woo_id IS NOT NULL").rowcount
+    _push_soon()
+    return {"queued": n}
+
+
+@router.post("/woo/pull")
+async def woo_pull(request: Request, user=Admin):
+    body = await request.json()
+    since = body.get("since")
+    if since:
+        result = await woo.pull_orders(f"{since}T00:00:00+00:00")
+    else:
+        result = await woo.pull_orders()
+    return result
+
+
+@router.post("/woo/webhook", include_in_schema=False)
+async def woo_webhook(request: Request):
+    body = await request.body()
+    if not request.headers.get("x-wc-webhook-topic"):
+        return {"ok": True}          # WooCommerce "ping" when the webhook is saved
+    if not woo.verify_webhook(body, request.headers.get("x-wc-webhook-signature")):
+        woo.wlog("webhook", False, "امضای وب‌هوک نامعتبر بود (Secret را چک کنید)")
+        raise HTTPException(401, "bad signature")
+    topic = request.headers.get("x-wc-webhook-topic", "")
+    if topic.startswith("order."):
+        import json
+        order = json.loads(body)
+        result = await asyncio.to_thread(woo.process_order, order)
+        woo.wlog("webhook", True, f"{topic} #{order.get('number') or order.get('id')} ({order.get('status')}): {result}")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- settings, users, partners
+
+EDITABLE_SETTINGS = {"shop", "product_categories", "expense_categories", "channel_accounts"}
+
+
+@router.put("/settings/{key}")
+async def save_setting(key: str, request: Request, user=Admin):
+    if key not in EDITABLE_SETTINGS:
+        raise HTTPException(404, "تنظیم ناشناخته")
+    db.set_setting(key, await request.json())
+    return {"ok": True}
+
+
+@router.put("/partners")
+async def partners_bulk(request: Request, user=Admin):
+    """Save all partners at once (shares must add up to 100, so they cannot be changed one by one)."""
+    body = await request.json()
+    with db.tx() as con:
+        for p in body:
+            con.execute("UPDATE partners SET name = ?, share = ? WHERE id = ?",
+                        ((p.get("name") or "").strip() or "شریک", float(p.get("share") or 0), int(p["id"])))
+        total = con.execute("SELECT SUM(share) FROM partners WHERE active = 1").fetchone()[0]
+        if abs((total or 0) - 100) > 0.01:
+            raise ledger.LedgerError(f"جمع سهم شرکا باید ۱۰۰ باشد (الان {ledger.fa(round(total or 0, 2))})")
+        notify.activity(con, "partners", "سهم شرکا تغییر کرد",
+                        "، ".join(f"{p.get('name')}: {ledger.fa(p.get('share'))}٪" for p in body), user_id=user["id"])
+        notify.publish_after(con, {"type": "refresh", "scope": "money"})
+    return {"ok": True}
+
+
+@router.put("/partners/{partner_id}")
+async def partners_update(partner_id: int, request: Request, user=Admin):
+    body = await request.json()
+    with db.tx() as con:
+        p = db.one(con.execute("SELECT * FROM partners WHERE id = ?", (partner_id,)))
+        if not p:
+            raise HTTPException(404, "شریک پیدا نشد")
+        con.execute("UPDATE partners SET name = ?, share = ? WHERE id = ?",
+                    ((body.get("name") or p["name"]).strip(), float(body.get("share", p["share"])), partner_id))
+        total = con.execute("SELECT SUM(share) FROM partners WHERE active = 1").fetchone()[0]
+        if abs((total or 0) - 100) > 0.01:
+            raise ledger.LedgerError(f"جمع سهم شرکا باید ۱۰۰ باشد (الان {ledger.fa(round(total, 2))})")
+        notify.publish_after(con, {"type": "refresh", "scope": "money"})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- files, import, export, backup
+
+
+@router.post("/import-excel")
+async def import_excel(file: UploadFile = File(...), user=Admin):
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+    try:
+        return await asyncio.to_thread(importer.run, tmp.name, user)
+    finally:
+        Path(tmp.name).unlink(missing_ok=True)
+
+
+@router.get("/export.xlsx")
+def export_xlsx(user=Admin):
+    data = exporter.workbook_bytes()
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="aiko-{db.today()}.xlsx"'})

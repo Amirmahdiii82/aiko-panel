@@ -1,0 +1,13 @@
+[Unit]
+Description=Aiko Panel deploy receiver (GitHub Actions -> /__deploy)
+After=network-online.target
+
+[Service]
+EnvironmentFile=/etc/aiko-panel/deploy.env
+Environment=DEPLOY_PORT=9002
+ExecStart=/usr/bin/python3 /opt/aiko-panel/deploy/webhook.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

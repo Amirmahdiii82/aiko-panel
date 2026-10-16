@@ -1,0 +1,13 @@
+# The path from this server to aikocosmetics.ir drops large packets (PMTU black hole),
+# so TLS hangs after ServerHello. Advertising a smaller MSS avoids it.
+[Unit]
+Description=Clamp outgoing TCP MSS
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c "iptables -t mangle -C OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360 2>/dev/null || iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360"
+
+[Install]
+WantedBy=multi-user.target
