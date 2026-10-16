@@ -65,6 +65,22 @@ rollback() {
   exit 1
 }
 
+echo "==> system safety (service unit, swap)"
+# the app's systemd unit ships with the code (memory limits, ...): install it when it changed
+if ! cmp -s "$ROOT/deploy/$SERVICE.service" "/etc/systemd/system/$SERVICE.service"; then
+  cp "$ROOT/deploy/$SERVICE.service" "/etc/systemd/system/$SERVICE.service"
+  systemctl daemon-reload
+  echo "    service unit updated"
+fi
+# a small server without swap freezes completely when RAM runs out; 2 GB of swap gives it room to recover
+if [[ -z $(swapon --show --noheadings 2>/dev/null) && ! -e /swapfile ]] \
+   && (( $(df --output=avail -k / | tail -1) > 6 * 1024 * 1024 )); then
+  (fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048) && chmod 600 /swapfile \
+    && mkswap /swapfile >/dev/null && swapon /swapfile \
+    && { grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab; } \
+    && echo "    2 GB swap added" || echo "    could not add swap (continuing)"
+fi
+
 echo "==> migrating databases"
 (cd "$ROOT" && as_app "$PY" -m app migrate) || rollback "migration failed"
 

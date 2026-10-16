@@ -11,6 +11,10 @@ Environment=TZ=Asia/Tehran
 ExecStart=/opt/aiko-panel/.venv/bin/python -m app serve
 Restart=always
 RestartSec=5
+# Memory guard: if the app ever grows too big (a crawl, a large media file, ...), it is slowed and then killed
+# and restarted on its own — instead of the whole server running out of RAM and freezing (SSH, Caddy, everything).
+MemoryHigh=60%
+MemoryMax=75%
 # graceful stop: let uvicorn finish requests and close SQLite cleanly
 TimeoutStopSec=20
 NoNewPrivileges=true
