@@ -32,11 +32,11 @@ def enabled_sites() -> list[str]:
 
 # ---------------------------------------------------------------- own catalog
 async def sync_own_catalog(crawl_id: int) -> int:
-    async with WooCommerceSource("own", config.OWN_SITE_NAME, config.OWN_SITE_URL) as own:
+    async with WooCommerceSource("own", config.OWN_SITE_NAME, config.own_site_url()) as own:
         raw = await own.all_products(config.PRODUCT_LIMIT)
     if not raw:
         raise RuntimeError(
-            f"هیچ محصولی از {config.OWN_SITE_URL} دریافت نشد. "
+            f"هیچ محصولی از {config.own_site_url()} دریافت نشد. "
             "سرور باید به سایت دسترسی داشته باشد (IP ایران) و Store API ووکامرس فعال باشد."
         )
     ts = db.now_iso()
@@ -156,7 +156,7 @@ def learn_brands(products: list[dict]) -> None:
 
 def _is_own_listing(c: Candidate) -> bool:
     own_name = tn.normalize(config.OWN_SITE_NAME)
-    own_host = config.OWN_SITE_URL.split("//")[-1].split("/")[0].replace("www.", "")
+    own_host = config.own_site_url().split("//")[-1].split("/")[0].replace("www.", "")
     seller = tn.normalize(c.seller or "")
     return bool((own_name and own_name in seller) or (own_host and own_host in (c.url or "")))
 

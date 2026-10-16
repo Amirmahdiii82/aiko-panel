@@ -122,7 +122,7 @@ def report(con, start: str, end: str, label: str = "") -> dict:
 
     products = db.rows(con.execute(
         """SELECT i.product_id, IFNULL(p.name, i.name) AS name, p.image, SUM(i.qty) AS qty,
-                  SUM(i.line_total) AS revenue, SUM(i.line_total - i.qty * i.unit_cost) AS profit
+                  SUM(i.line_total - i.discount) AS revenue, SUM(i.line_total - i.discount - i.qty * i.unit_cost) AS profit
            FROM sale_items i JOIN sales s ON s.id = i.sale_id LEFT JOIN products p ON p.id = i.product_id
            WHERE s.status = 'done' AND s.date BETWEEN ? AND ?
            GROUP BY IFNULL(i.product_id, i.name) ORDER BY profit DESC""", (start, end)))
@@ -153,6 +153,7 @@ def report(con, start: str, end: str, label: str = "") -> dict:
         "monthly": monthly_series(con, series_start, end),
         "daily": daily_series(con, series_start, end) if 0 <= span_days <= 62 else [],
         "inventory": inventory_stats(con),
+        "missing_cost": ledger.missing_costs(con, start, end),
     }
 
 
@@ -205,7 +206,8 @@ def dashboard(con, user: dict) -> dict:
     recent = db.rows(con.execute(
         """SELECT a.*, u.name AS user_name FROM core.activity a LEFT JOIN users u ON u.id = a.user_id
            WHERE a.module = 'erp' ORDER BY a.id DESC LIMIT 15"""))
-    woo = db.get_setting("woo", {}, con) or {}
+    from . import woo as woo_sync
+    woo = woo_sync.settings()
     return {
         "today": {"orders": today_row[0], "revenue": int(today_row[1])},
         "month": month, "month_label": mlabel, "prev_month": prev,
@@ -215,7 +217,7 @@ def dashboard(con, user: dict) -> dict:
         "inventory": inventory_stats(con),
         "money": ledger.summary_money(con),
         "partners": ledger.partner_positions(con),
-        "site": {"configured": bool(woo.get("key") and woo.get("secret")), "auto_push": bool(woo.get("auto_push")),
+        "site": {"configured": woo_sync.configured(woo), "auto_push": bool(woo.get("auto_push")),
                  "errors": sync_errors, "pending": pending, "unlinked": unlinked,
                  "last_order_sync": woo.get("last_order_sync")},
         "recent": recent,

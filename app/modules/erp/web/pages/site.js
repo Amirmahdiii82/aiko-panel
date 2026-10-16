@@ -1,18 +1,20 @@
-// WooCommerce connection: keys, webhook, product linking, stock sync status and log.
-import { $, api, confirmBox, delegate, fa, html, icon, jdate, num, on, timeOf, toast } from "/static/js/kit.js";
-import { bindDates, copyText, dateField, emptyState, thumb } from "/static/js/kit.js";
-import { erp, refreshMe, wooBadge } from "../erp.js";
+// Website sync: one full sync (every site product and every order since the shop opened, exact figures), what still
+// needs a person (duplicates to merge, hand-typed website sales with no site order, sold items without a cost),
+// linked products and stock, webhook and log. The site address and keys live in Settings → Connections.
+import { $, api, confirmBox, delegate, fa, html, icon, isOwner, jdate, num, on, timeOf, toast } from "/static/js/kit.js";
+import { copyText, emptyState, thumb } from "/static/js/kit.js";
+import { refreshMe, wooBadge } from "../erp.js";
+
+const STEPS = { catalog: "خواندن همه محصولات و رنگ‌ها از سایت…", orders: "خواندن همه سفارش‌های سایت…", apply: "ثبت فروش‌ها و هماهنگ کردن با داده‌های اکسل…" };
+const when = (ts) => (ts ? `${jdate(ts.slice(0, 10), { year: false })} ${timeOf(ts)}` : "");
 
 export async function render(view, params, { setTitle }) {
-  setTitle("اتصال سایت", "aikocosmetics.ir — موجودی از اینجا به سایت، سفارش‌ها از سایت به اینجا");
+  setTitle("اتصال سایت", "همه محصولات و فروش‌های سایت، دقیق و خودکار");
   let st = await api("/api/erp/woo");
   let cat = await api("/api/erp/woo/catalog");
-  let tab = cat.suggestions?.length ? "suggest" : "linked";
+  let tab = "review";
 
-  const draw = () => {
-    view.innerHTML = String(page(st, cat, tab));
-    bindDates(view);
-  };
+  const draw = () => { view.innerHTML = String(page(st, cat, tab)); };
   draw();
   const reload = async () => { st = await api("/api/erp/woo", { quiet: true }); cat = await api("/api/erp/woo/catalog", { quiet: true }); draw(); };
 
@@ -27,29 +29,19 @@ export async function render(view, params, { setTitle }) {
     toast(el.checked ? "همگام‌سازی خودکار روشن شد" : "همگام‌سازی خودکار خاموش شد");
     reload();
   });
-  delegate(view, "submit", "#keys", async (e) => {
+  delegate(view, "submit", "#opts", async (e) => {
     e.preventDefault();
-    const f = e.target;
-    await api("/api/erp/woo", { method: "PUT", body: {
-      url: f.url.value, key: f.key.value, secret: f.secret.value, query_auth: f.query_auth.checked, pull_minutes: Number(f.pull_minutes.value) || 3,
-    } });
-    toast("ذخیره شد؛ در حال آزمایش اتصال…", "info");
-    try {
-      const r = await api("/api/erp/woo/test", { method: "POST" });
-      toast(`اتصال برقرار شد ✓ ${fa(r.products)} محصول، واحد پول: ${r.currency || "؟"}`);
-    } catch (err) { /* toast already shown */ }
-    await refreshMe();
+    await api("/api/erp/woo", { method: "PUT", body: { pull_minutes: Number(String(e.target.pull_minutes.value).replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d))) || 3 } });
+    toast("ذخیره شد");
     reload();
   });
   delegate(view, "click", "[data-act]", async (e, el) => {
     const act = el.dataset.act;
-    if (act === "catalog") {
-      el.disabled = true;
-      el.innerHTML = String(html`${icon("loader-circle", "sm")} در حال خواندن…`);
-      try {
-        const r = await api("/api/erp/woo/catalog/refresh", { method: "POST" });
-        toast(`${fa(r.count)} محصول و رنگ از سایت خوانده شد${r.source === "public" ? " (بدون عدد موجودی؛ برای موجودی دقیق کلید API لازم است)" : ""}`);
-      } finally { reload(); }
+    if (act === "full-sync") {
+      if (!(await confirmBox("همه محصولات و همه سفارش‌های سایت از اول خوانده می‌شوند. فروش‌های سایت که دستی یا از اکسل ثبت شده‌اند با سفارش دقیق سایت جایگزین می‌شوند (قیمت خرید اکسل حفظ می‌شود). فروش‌های حضوری/اینستاگرام، خریدها و هزینه‌ها دست نمی‌خورند. قبلش خودکار پشتیبان گرفته می‌شود. شروع شود؟", { okText: "شروع" }))) return;
+      await api("/api/erp/woo/full-sync", { method: "POST" });
+      toast("شروع شد؛ چند دقیقه طول می‌کشد", "info");
+      reload();
     }
     if (act === "link") {
       await api("/api/erp/woo/link", { method: "POST", body: { product_id: Number(el.dataset.pid), woo_id: Number(el.dataset.woo), variation_id: el.dataset.var ? Number(el.dataset.var) : null } });
@@ -64,24 +56,13 @@ export async function render(view, params, { setTitle }) {
       toast("وصل شد");
       reload();
     }
-    if (act === "link-sure") {
-      // one site product can only be linked once: keep the strongest claim
-      const byTarget = new Map();
-      cat.suggestions.filter((s) => sure(s)).forEach((s) => {
-        const c = s.candidates[0], key = `${c.woo_id}:${c.variation_id || ""}`;
-        if (!byTarget.has(key) || byTarget.get(key).score < c.score) byTarget.set(key, { product_id: s.product.id, woo_id: c.woo_id, variation_id: c.variation_id, score: c.score });
-      });
-      const links = [...byTarget.values()];
-      if (!links.length) return toast("پیشنهاد مطمئنی نیست", "info");
-      if (!(await confirmBox(`${fa(links.length)} محصول به پیشنهاد اول وصل شود؟ بعداً هر کدام را می‌توانید عوض کنید.`))) return;
-      const res = await api("/api/erp/woo/link", { method: "POST", body: { links } });
-      toast(`${fa(res.count)} محصول وصل شد${res.skipped.length ? ` (${fa(res.skipped.length)} مورد قبلاً وصل بود)` : ""}`);
+    if (act === "merge") {
+      if (!(await confirmBox(`«${el.dataset.name}» با «${el.dataset.intoName}» یکی شود؟ همه فروش‌ها، خریدها و موجودی آن به محصول سایت منتقل می‌شود.`, { okText: "ادغام" }))) return;
+      await api(`/api/erp/products/${el.dataset.pid}/merge`, { method: "POST", body: { into: Number(el.dataset.into) } });
+      toast("ادغام شد");
       reload();
     }
-    if (act === "unlink") {
-      await api("/api/erp/woo/unlink", { method: "POST", body: { product_id: Number(el.dataset.pid) } });
-      reload();
-    }
+    if (act === "unlink") { await api("/api/erp/woo/unlink", { method: "POST", body: { product_id: Number(el.dataset.pid) } }); reload(); }
     if (act === "push") { await api(`/api/erp/products/${el.dataset.pid}/push`, { method: "POST" }); toast("در صف ارسال"); setTimeout(reload, 3000); }
     if (act === "use-site") { await api(`/api/erp/products/${el.dataset.pid}/use-site-stock`, { method: "POST" }); toast("موجودی اینجا مثل سایت شد"); reload(); }
     if (act === "push-all") {
@@ -95,120 +76,97 @@ export async function render(view, params, { setTitle }) {
       toast(`سفارش‌ها بررسی شد${r.created ? ` — ${fa(r.created)} فروش جدید` : ""}`);
       reload();
     }
-    if (act === "backfill") {
-      const since = view.querySelector("input[name=since]").value;
-      if (!(await confirmBox(`همه سفارش‌های سایت از ${jdate(since)} به بعد خوانده و به‌عنوان فروش ثبت می‌شوند. اگر این سفارش‌ها را قبلاً دستی (مثلاً در اکسل) وارد کرده‌اید، تکراری می‌شوند. ادامه؟`, { okText: "بخوان" }))) return;
-      const r = await api("/api/erp/woo/pull", { method: "POST", body: { since } });
-      toast(`انجام شد: ${fa(r.created || 0)} فروش جدید`);
-      reload();
-    }
-    if (act === "import") {
-      const items = [...view.querySelectorAll("input[data-imp]:checked")].map((c) => {
-        const [woo_id, variation_id] = c.dataset.imp.split(":");
-        return { woo_id: Number(woo_id), variation_id: variation_id ? Number(variation_id) : null };
-      });
-      if (!items.length) return toast("محصولی انتخاب نشده", "error");
-      const r = await api("/api/erp/woo/import-products", { method: "POST", body: { items } });
-      toast(`${fa(r.created)} محصول ساخته شد؛ قیمت خرید و موجودی را کامل کنید`);
-      reload();
-    }
-  });
-  delegate(view, "change", "[data-imp-parent]", (e, el) => {
-    view.querySelectorAll(`input[data-imp^="${el.dataset.impParent}:"]`).forEach((c) => { c.checked = false; c.disabled = el.checked; });
   });
   let timer;
-  const off = on("live:erp", (ev) => { if (ev.type === "product" && ev.woo_state) { clearTimeout(timer); timer = setTimeout(reload, 1500); } });
+  const off = on("live:erp", (ev) => {
+    if (ev.type === "site_sync" || (ev.type === "product" && ev.woo_state)) { clearTimeout(timer); timer = setTimeout(reload, 1200); }
+  });
   return () => { off(); clearTimeout(timer); };
 }
 
-const sure = (s) => s.candidates[0] && s.candidates[0].score >= 0.8 && (!s.candidates[1] || s.candidates[0].score - s.candidates[1].score >= 0.08);
-
 function page(st, cat, tab) {
-  const s = st.settings, c = st.counts || {};
+  const s = st.settings, c = st.counts || {}, fs = st.full_sync || {}, rv = st.review || {};
   const configured = st.configured;
+  const nReview = (rv.duplicates?.length || 0) + (rv.unmatched_web_sales?.length || 0) + (cat.suggestions?.length || 0);
   return html`<div class="stack">
     <section class="hero">
       <span class="blob-deco" style="width:220px;height:220px;left:-60px;top:-80px"></span>
       <div class="row between" style="align-items:flex-start">
         <div><h1>${icon("globe")} ${configured ? "سایت وصل است" : "سایت هنوز وصل نشده"}</h1>
           <p class="muted small">${configured
-            ? html`سفارش‌های سایت هر ${fa(s.pull_minutes || 3)} دقیقه (و با وب‌هوک فوری) خوانده می‌شوند${s.last_order_sync ? `، آخرین بررسی ${jdate(s.last_order_sync.slice(0, 10), { year: false })} ${timeOf(s.last_order_sync)}` : ""}`
-            : "کلیدهای API ووکامرس را وارد کنید (پایین صفحه، مرحله ۱)."}</p></div>
+            ? html`<span class="ltr">${s.url}</span> — سفارش‌های جدید فوری (وب‌هوک) و هر ${fa(s.pull_minutes || 3)} دقیقه خوانده می‌شوند${s.last_order_sync ? `، آخرین بررسی ${when(s.last_order_sync)}` : ""}`
+            : html`آدرس و کلید ووکامرس را ${isOwner() ? html`در <a href="#/settings/connections">تنظیمات ← اتصال‌ها</a>` : "از مدیر کل بخواهید"} وارد کنید (برای فروشگاه و قیمت رقبا با هم).`}</p></div>
         <label class="check bold"><span class="switch"><input type="checkbox" id="auto-push" ${s.auto_push ? "checked" : ""} ${configured ? "" : "disabled"}><span></span></span>
           همگام‌سازی خودکار موجودی</label>
       </div>
       <div class="grid g4 mt16" style="gap:12px">
-        <div class="inset"><div class="small muted">وصل‌شده</div><div class="bold num">${fa(c.linked || 0)} از ${fa(c.products || 0)}</div></div>
-        <div class="inset"><div class="small muted">در صف ارسال</div><div class="bold num">${fa(c.pending || 0)}</div></div>
-        <div class="inset"><div class="small muted">خطا</div><div class="bold num ${c.errors ? "bad-ink" : ""}">${fa(c.errors || 0)}</div></div>
+        <div class="inset"><div class="small muted">محصولات وصل به سایت</div><div class="bold num">${fa(c.linked || 0)} از ${fa(c.products || 0)}</div></div>
+        <div class="inset"><div class="small muted">فروش‌های سایت</div><div class="bold num">${fa(st.sales?.site || 0)}</div></div>
+        <div class="inset"><div class="small muted">خطای ارسال</div><div class="bold num ${c.errors ? "bad-ink" : ""}">${fa(c.errors || 0)}</div></div>
         <div class="inset"><div class="small muted">موجودی ناهماهنگ</div><div class="bold num ${c.mismatched ? "warn-ink" : ""}">${fa(c.mismatched || 0)}</div></div>
       </div>
-      ${configured ? html`<div class="row mt16">
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>${icon("refresh-cw")} همگام‌سازی کامل با سایت</h2><span class="spacer"></span>
+        <button class="btn primary" data-act="full-sync" ${configured && !fs.running ? "" : "disabled"}>${fs.running ? html`<span class="spin"></span> در حال انجام` : html`${icon("refresh-cw", "sm")} همگام‌سازی کامل`}</button>
+        <p>همه محصولات و رنگ‌های سایت در انبار ساخته یا وصل می‌شوند (بدون انتخاب دستی رنگ‌ها) و همه سفارش‌های سایت از اول با مبلغ دقیق ثبت می‌شوند: قیمت هر ردیف، کد تخفیف، هزینه ارسال، کارمزد و مبلغ برگشتی.
+          فروش سایتی که قبلاً دستی یا از اکسل ثبت شده با سفارش سایت جایگزین می‌شود و قیمت خرید اکسل حفظ می‌شود. فروش‌های بیرون از سایت، خریدها و هزینه‌ها از اکسل/پنل می‌مانند. هر شب ساعت ۴:۳۰ هم خودکار اجرا می‌شود.</p></div>
+      ${fs.running ? html`<div class="callout">${icon("loader-circle")}<div>${STEPS[fs.step] || "در حال انجام…"}${fs.orders ? ` (${fa(fs.orders)} سفارش)` : ""}</div></div>` : ""}
+      ${!fs.running && fs.error ? html`<div class="callout bad">${icon("triangle-alert")}<div>${fs.error}</div></div>` : ""}
+      ${!fs.running && fs.report ? report(fs) : ""}
+    </section>
+
+    <section class="card">
+      <div class="tabs">
+        <button class="chip ${tab === "review" ? "on" : ""}" data-tab="review">نیاز به بررسی <span class="c-count">${fa(nReview)}</span></button>
+        <button class="chip ${tab === "linked" ? "on" : ""}" data-tab="linked">محصولات وصل‌شده <span class="c-count">${fa(cat.linked?.length || 0)}</span></button>
+      </div>
+      ${tab === "review" ? reviewTab(rv, cat) : linkedTab(cat)}
+      ${configured && tab === "linked" ? html`<div class="row mt16">
         <button class="btn sm soft" data-act="push-all">${icon("cloud-upload", "sm")} ارسال همه موجودی‌ها به سایت</button>
         <button class="btn sm ghost" data-act="pull">${icon("refresh-cw", "sm")} خواندن سفارش‌های جدید</button></div>` : ""}
     </section>
 
-    <section class="card">
-      <div class="card-head"><h2>${icon("link")} اتصال محصولات</h2><span class="spacer"></span>
-        <span class="small muted">${cat.fetched_at ? `محصولات سایت: ${jdate(cat.fetched_at.slice(0, 10), { year: false })} ${timeOf(cat.fetched_at)}${cat.source === "public" ? " (بدون کلید)" : ""}` : ""}</span>
-        <button class="btn sm soft" data-act="catalog">${icon("refresh-cw", "sm")} خواندن محصولات سایت</button>
-        <p>هر محصول انبار را به همان محصول (یا همان رنگ) در سایت وصل کنید تا موجودی‌اش خودکار در سایت تنظیم شود.</p></div>
-      ${!cat.items?.length ? emptyState("globe", "محصولات سایت هنوز خوانده نشده", "دکمه «خواندن محصولات سایت» را بزنید. بدون کلید هم کار می‌کند، اما عدد موجودی سایت را فقط با کلید API می‌بینید.")
-        : html`<div class="tabs">
-            <button class="chip ${tab === "suggest" ? "on" : ""}" data-tab="suggest">وصل نشده <span class="c-count">${fa(cat.suggestions.length)}</span></button>
-            <button class="chip ${tab === "linked" ? "on" : ""}" data-tab="linked">وصل‌شده <span class="c-count">${fa(cat.linked.length)}</span></button>
-            <button class="chip ${tab === "site" ? "on" : ""}" data-tab="site">فقط در سایت <span class="c-count">${fa(cat.unlinked_site.length)}</span></button>
-          </div>
-          ${tab === "suggest" ? suggestTab(cat) : tab === "linked" ? linkedTab(cat) : siteTab(cat)}`}
-    </section>
-
     <div class="grid g2">
       <section class="card">
-        <div class="card-head"><h2>${icon("key-round")} راه‌اندازی</h2></div>
-        <div class="steps">
-          <div class="step ${s.key ? "done" : ""}"><div class="s-body"><b>ساخت کلید API در ووکامرس</b>
-            <p class="small muted">پیشخوان وردپرس ← ووکامرس ← پیکربندی ← پیشرفته ← REST API ← «افزودن کلید». دسترسی را <b>خواندن/نوشتن</b> بگذارید و کلید و رمز را اینجا بچسبانید.</p>
-            <form id="keys" class="stack s8 mt12" autocomplete="off">
-              <input class="input sm ltr" name="url" value="${s.url || ""}" placeholder="https://aikocosmetics.ir">
-              <input class="input sm ltr" name="key" value="${s.key || ""}" placeholder="ck_…">
-              <input class="input sm ltr" name="secret" type="password" placeholder="${s.secret_set ? "رمز ذخیره شده (برای تغییر، رمز جدید را بنویسید)" : "cs_…"}">
-              <div class="row"><label class="check small"><input type="checkbox" name="query_auth" ${s.query_auth ? "checked" : ""}> ارسال کلید در آدرس (اگر خطای ۴۰۱ گرفتید)</label>
-                <label class="small row nowrap">هر <input class="input sm" name="pull_minutes" value="${fa(s.pull_minutes || 3)}" style="width:56px" inputmode="numeric"> دقیقه بررسی سفارش‌ها</label></div>
-              <button class="btn sm primary" type="submit">${icon("check", "sm")} ذخیره و آزمایش اتصال</button>
-            </form></div></div>
-          <div class="step"><div class="s-body"><b>وب‌هوک برای ثبت فوری سفارش‌های سایت</b>
-            <p class="small muted">ووکامرس ← پیکربندی ← پیشرفته ← وب‌هوک‌ها ← «افزودن». دو وب‌هوک بسازید با موضوع «سفارش ایجاد شد» و «سفارش به‌روز شد»، وضعیت فعال، نسخه API: WP REST API v3.</p>
-            <div class="inset small stack s8 mt8">
-              <div class="row nowrap"><span class="muted">آدرس تحویل:</span><code class="ltr ellipsis" style="flex:1">${st.webhook_url}</code>
-                <button class="btn xs ghost" data-copy="${st.webhook_url}">${icon("copy", "sm")}</button></div>
-              <div class="row nowrap"><span class="muted">رمز (Secret):</span><code class="ltr ellipsis" style="flex:1">${s.webhook_secret || "اول کلیدها را ذخیره کنید"}</code>
-                ${s.webhook_secret ? html`<button class="btn xs ghost" data-copy="${s.webhook_secret}">${icon("copy", "sm")}</button>` : ""}</div>
-            </div>
-            <p class="tiny muted mt8">بدون وب‌هوک هم سفارش‌ها هر چند دقیقه خوانده می‌شوند؛ وب‌هوک فقط فوری‌ترش می‌کند. آدرس باید از اینترنت در دسترس باشد (روی سرور).</p></div></div>
-          <div class="step ${c.linked ? "done" : ""}"><div class="s-body"><b>وصل کردن محصولات</b><p class="small muted">از بخش بالا. محصولاتی که چند رنگ دارند را می‌توانید کلی وصل کنید یا از صفحه محصول «تفکیک به رنگ‌ها» بزنید.</p></div></div>
-          <div class="step ${s.auto_push ? "done" : ""}"><div class="s-body"><b>روشن کردن همگام‌سازی خودکار</b><p class="small muted">بعد از اینکه موجودی‌ها را چک کردید، کلید بالای صفحه را روشن کنید. از آن به بعد هر فروش (از هر کانالی) همان لحظه موجودی سایت را تنظیم می‌کند و محصول تمام‌شده در سایت «ناموجود» می‌شود.</p></div></div>
+        <div class="card-head"><h2>${icon("zap")} وب‌هوک (ثبت فوری سفارش‌ها)</h2></div>
+        <p class="small muted">ووکامرس ← پیکربندی ← پیشرفته ← وب‌هوک‌ها ← «افزودن». دو وب‌هوک با موضوع «سفارش ایجاد شد» و «سفارش به‌روز شد»، وضعیت فعال، نسخه API: WP REST API v3.</p>
+        <div class="inset small stack s8 mt8">
+          <div class="row nowrap"><span class="muted">آدرس تحویل:</span><code class="ltr ellipsis" style="flex:1">${st.webhook_url}</code>
+            <button class="btn xs ghost" data-copy="${st.webhook_url}">${icon("copy", "sm")}</button></div>
+          <div class="row nowrap"><span class="muted">رمز (Secret):</span><code class="ltr ellipsis" style="flex:1">${s.webhook_secret || "بعد از وصل شدن سایت ساخته می‌شود"}</code>
+            ${s.webhook_secret ? html`<button class="btn xs ghost" data-copy="${s.webhook_secret}">${icon("copy", "sm")}</button>` : ""}</div>
         </div>
-        ${configured ? html`<div class="divider"></div>
-          <h3>${icon("history", "sm")} خواندن سفارش‌های گذشته</h3>
-          <p class="small muted">فقط اگر سفارش‌های سایت را قبلاً جایی ثبت نکرده‌اید (وگرنه تکراری می‌شوند).</p>
-          <div class="row mt8" style="align-items:flex-end"><div style="flex:1">${dateField({ name: "since", label: "از تاریخ", value: erp.me.today })}</div>
-            <button class="btn sm soft" data-act="backfill">${icon("download", "sm")} بخوان</button></div>` : ""}
+        <form id="opts" class="row mt12"><label class="small row nowrap">بدون وب‌هوک هم هر <input class="input sm" name="pull_minutes" value="${fa(s.pull_minutes || 3)}" style="width:56px" inputmode="numeric"> دقیقه سفارش‌ها بررسی شوند</label>
+          <button class="btn xs soft" type="submit">ذخیره</button></form>
       </section>
       <section class="card">
         <div class="card-head"><h2>${icon("list")} گزارش همگام‌سازی</h2></div>
         ${st.log.length ? html`<div class="list">${st.log.map((l) => html`<div class="list-item">
           <span class="badge ${l.ok ? "ok" : "bad"}">${icon(l.ok ? "check" : "x")}</span>
-          <div class="grow"><div class="small">${l.detail}</div><div class="tiny muted">${l.action}، ${jdate(l.created_at.slice(0, 10), { year: false })} ${timeOf(l.created_at)}</div></div></div>`)}</div>`
+          <div class="grow"><div class="small">${l.detail}</div><div class="tiny muted">${l.action}، ${when(l.created_at)}</div></div></div>`)}</div>`
           : emptyState("list", "هنوز رویدادی نیست")}
       </section>
     </div>
   </div>`;
 }
 
+function report(fs) {
+  const r = fs.report;
+  return html`<div class="grid g4" style="gap:12px">
+      <div class="inset"><div class="small muted">فروش سایت ثبت شد</div><div class="bold num">${fa(r.sales_created)}</div></div>
+      <div class="inset"><div class="small muted">جایگزین فروش دستی/اکسل</div><div class="bold num">${fa(r.sales_replaced)}</div></div>
+      <div class="inset"><div class="small muted">محصول ساخته شد</div><div class="bold num">${fa(r.products_created)}</div></div>
+      <div class="inset"><div class="small muted">محصول وصل شد</div><div class="bold num">${fa(r.linked)}</div></div>
+    </div>
+    <p class="tiny muted mt8">${fa(r.orders)} سفارش بررسی شد، ${fa(r.sales_updated)} به‌روز، ${fa(r.sales_voided)} لغو — ${when(fs.finished_at)} (${fs.by || ""})</p>`;
+}
+
 function catalogOptions(cat) {
-  const used = new Set(cat.linked.map((p) => `${p.woo_id}:${p.woo_variation_id || ""}`));
-  const parents = cat.items.filter((e) => !e.variation_id);
-  return html`<option value="">انتخاب دستی از سایت…</option>${parents.map((p) => {
+  const used = new Set((cat.linked || []).map((p) => `${p.woo_id}:${p.woo_variation_id || ""}`));
+  const parents = (cat.items || []).filter((e) => !e.variation_id);
+  return html`<option value="">انتخاب از سایت…</option>${parents.map((p) => {
     const vars = cat.items.filter((e) => e.woo_id === p.woo_id && e.variation_id);
     return html`<optgroup label="${p.name}">
       <option value="${p.woo_id}:" ${used.has(`${p.woo_id}:`) ? "disabled" : ""}>${p.name}${vars.length ? " (همه رنگ‌ها با هم)" : ""}</option>
@@ -217,30 +175,45 @@ function catalogOptions(cat) {
   })}`;
 }
 
-function suggestTab(cat) {
-  if (!cat.suggestions.length) return emptyState("circle-check", "همه محصولات انبار وصل شده‌اند");
-  const nSure = cat.suggestions.filter(sure).length;
-  const options = catalogOptions(cat);
-  return html`${nSure ? html`<div class="callout ok" style="margin-bottom:14px">${icon("sparkles")}<div style="flex:1">${fa(nSure)} پیشنهاد با اطمینان بالا پیدا شد.</div>
-      <button class="btn sm primary" data-act="link-sure">تأیید همه</button></div>` : ""}
-    <div class="list">${cat.suggestions.map((s) => html`<div class="list-item" style="align-items:flex-start;flex-wrap:wrap">
-      <div class="row nowrap" style="flex:1;min-width:240px">${thumb(s.product, "sm")}<div><div class="title small">${s.product.name}</div>
-        <div class="sub">موجودی ${fa(s.product.stock)}، ${num(s.product.price)} تومان</div></div></div>
-      <div class="stack s8" style="flex:1.4;min-width:260px">
-        ${s.candidates.map((c, i) => html`<div class="row nowrap">
-          <span class="badge ${c.score >= 0.8 ? "ok" : c.score >= 0.55 ? "warn" : ""}">${fa(Math.round(c.score * 100))}٪</span>
-          <span class="small grow ellipsis" style="flex:1" title="${c.name}">${c.name}</span>
-          <span class="tiny muted nowrap">${num(c.price)}</span>
-          <button class="btn xs ${i === 0 && sure(s) ? "primary" : "soft"}" data-act="link" data-pid="${s.product.id}" data-woo="${c.woo_id}" data-var="${c.variation_id || ""}">وصل</button>
-        </div>`)}
-        <div class="row nowrap"><select class="select sm" data-manual="${s.product.id}" style="flex:1">${options}</select>
+function reviewTab(rv, cat) {
+  const dups = rv.duplicates || [], web = rv.unmatched_web_sales || [], mc = rv.missing_cost || {};
+  const loose = (cat.suggestions || []).filter((s) => !dups.some((d) => d.product.id === s.product.id));
+  if (!dups.length && !web.length && !loose.length && !mc.lines) return emptyState("circle-check", "همه چیز با سایت هماهنگ است");
+  return html`<div class="stack">
+    ${mc.lines ? html`<div class="callout warn">${icon("triangle-alert")}<div><b>${fa(mc.lines)} ردیف فروش (${fa(mc.products)} محصول) قیمت خرید ندارد</b> و سودشان بیشتر از واقع حساب می‌شود (${num(mc.revenue)} تومان فروش).
+      قیمت خرید این محصولات را در <a href="#/erp/products?f=nocost">انبار</a> وارد کنید یا خریدشان را ثبت کنید؛ فروش‌های گذشته خودکار اصلاح می‌شوند.</div></div>` : ""}
+
+    ${dups.length ? html`<div><h3>${icon("merge", "sm")} احتمالاً یک کالا دو بار ثبت شده</h3>
+      <p class="small muted">این محصولات در انبار هستند (مثلاً از اکسل) ولی به سایت وصل نیستند، و محصول سایت با نام نزدیک هم جدا ساخته شده. اگر یکی‌اند، ادغام کنید تا موجودی و تاریخچه یک‌جا شود.</p>
+      <div class="list mt8">${dups.map((d) => html`<div class="list-item" style="flex-wrap:wrap">
+        <div class="row nowrap" style="flex:1;min-width:220px">${thumb(d.product, "sm")}<div><div class="title small">${d.product.name}</div>
+          <div class="sub">انبار — موجودی ${fa(d.product.stock)}، ${fa(d.product.sales)} فروش</div></div></div>
+        ${icon("arrow-left", "sm")}
+        <div class="row nowrap" style="flex:1;min-width:220px">${thumb(d.site_product, "sm")}<div><div class="title small">${d.site_product.name}</div>
+          <div class="sub">سایت — موجودی ${fa(d.site_product.stock)}</div></div></div>
+        <button class="btn xs ${d.strong ? "primary" : "soft"}" data-act="merge" data-pid="${d.product.id}" data-into="${d.site_product.id}"
+          data-name="${d.product.name}" data-into-name="${d.site_product.name}">ادغام</button>
+      </div>`)}</div></div>` : ""}
+
+    ${web.length ? html`<div><h3>${icon("receipt", "sm")} فروش سایتی که سفارشش در سایت پیدا نشد</h3>
+      <p class="small muted">این فروش‌ها با کانال «سایت» دستی یا از اکسل ثبت شده‌اند ولی سفارش هم‌تاریخ و هم‌مبلغی در سایت ندارند. بازش کنید: اگر تکراری است باطل کنید، اگر از سایت نبوده کانالش را عوض کنید.</p>
+      <div class="list mt8">${web.map((w) => html`<a class="list-item clickable" href="#/erp/sales/${w.id}" style="text-decoration:none">
+        <div class="grow"><div class="title small">${w.code}</div><div class="sub">${jdate(w.date)} — ${w.source === "sheet" ? "از اکسل" : "دستی"}</div></div>
+        <b class="num">${num(w.total)}</b>${icon("chevron-left", "sm")}</a>`)}</div></div>` : ""}
+
+    ${loose.length ? html`<div><h3>${icon("link", "sm")} محصولات انبار که در سایت نیستند</h3>
+      <p class="small muted">اگر در سایت هستند، محصول سایت را انتخاب کنید؛ اگر فقط حضوری/اینستاگرام فروخته می‌شوند، کاری لازم نیست.</p>
+      <div class="list mt8">${loose.map((s) => html`<div class="list-item" style="flex-wrap:wrap">
+        <div class="row nowrap" style="flex:1;min-width:220px">${thumb(s.product, "sm")}<div><div class="title small">${s.product.name}</div>
+          <div class="sub">موجودی ${fa(s.product.stock)}</div></div></div>
+        <div class="row nowrap" style="flex:1.4;min-width:260px"><select class="select sm" data-manual="${s.product.id}" style="flex:1">${catalogOptions(cat)}</select>
           <button class="btn xs soft" data-act="link-select" data-pid="${s.product.id}">وصل</button></div>
-      </div>
-    </div>`)}</div>`;
+      </div>`)}</div></div>` : ""}
+  </div>`;
 }
 
 function linkedTab(cat) {
-  if (!cat.linked.length) return emptyState("link", "هنوز محصولی وصل نشده");
+  if (!cat.linked?.length) return emptyState("link", "هنوز محصولی وصل نشده", "«همگام‌سازی کامل» را بزنید.");
   return html`<div class="table-wrap"><table class="t responsive">
     <thead><tr><th>محصول انبار</th><th>در سایت</th><th class="n">اینجا</th><th class="n">سایت</th><th>وضعیت</th><th></th></tr></thead>
     <tbody>${cat.linked.map((p) => {
@@ -257,25 +230,4 @@ function linkedTab(cat) {
           <button class="btn xs ghost" data-act="unlink" data-pid="${p.id}" title="قطع اتصال">${icon("unlink", "sm")}</button></td>
       </tr>`;
     })}</tbody></table></div>`;
-}
-
-function siteTab(cat) {
-  const items = cat.unlinked_site;
-  if (!items.length) return emptyState("circle-check", "همه محصولات سایت در انبار هستند");
-  const parents = items.filter((e) => !e.variation_id);
-  const orphans = items.filter((e) => e.variation_id && !parents.some((p) => p.woo_id === e.woo_id));
-  return html`<div class="callout" style="margin-bottom:14px">${icon("info")}<div>این محصولات در سایت هستند ولی در انبار نه (مثلاً کالاهای جدید).
-      انتخاب کنید تا ساخته شوند؛ برای محصولات چندرنگ یا «کل محصول» را بزنید یا رنگ‌ها را جدا.</div></div>
-    <div class="list">${[...parents, ...orphans].map((p) => {
-      const vars = p.variation_id ? [] : items.filter((e) => e.woo_id === p.woo_id && e.variation_id);
-      return html`<div class="list-item" style="align-items:flex-start">
-        <input type="checkbox" ${p.variation_id ? html`data-imp="${p.woo_id}:${p.variation_id}"` : html`data-imp="${p.woo_id}:" data-imp-parent="${p.woo_id}"`} style="margin-top:12px;width:18px;height:18px">
-        ${thumb(p, "sm")}
-        <div class="grow"><div class="title small">${p.name}${vars.length ? html` <span class="badge">کل محصول</span>` : ""}</div>
-          <div class="sub">${num(p.price)} تومان${p.stock !== null && p.stock !== undefined ? `، موجودی سایت ${fa(p.stock)}` : ""}</div>
-          ${vars.length ? html`<div class="chips mt8">${vars.map((v) => html`<label class="chip" style="height:30px;cursor:pointer">
-            <input type="checkbox" data-imp="${v.woo_id}:${v.variation_id}"> ${v.variation_label}</label>`)}</div>` : ""}
-        </div></div>`;
-    })}</div>
-    <div class="row mt16"><button class="btn primary" data-act="import">${icon("package-plus")} ساخت محصولات انتخاب‌شده در انبار</button></div>`;
 }

@@ -31,9 +31,9 @@ def _usable(hex_color: str) -> bool:
 
 async def refresh_branding() -> dict:
     current = db.get_setting("branding", {}) or {}
-    async with WooCommerceSource("own", config.OWN_SITE_NAME, config.OWN_SITE_URL) as site:
-        info = await site.get(config.OWN_SITE_URL + "/wp-json/", expect_json=True, retries=1) or {}
-        home = await site.get(config.OWN_SITE_URL + "/", retries=1) or ""
+    async with WooCommerceSource("own", config.OWN_SITE_NAME, config.own_site_url()) as site:
+        info = await site.get(config.own_site_url() + "/wp-json/", expect_json=True, retries=1) or {}
+        home = await site.get(config.own_site_url() + "/", retries=1) or ""
     branding = dict(current)
     if info.get("name"):
         branding["name"] = info["name"]

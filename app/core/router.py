@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from . import activity, auth, backup, config, db, events, jobs
+from . import activity, auth, backup, config, db, events, integrations, jobs
 from .modules import loaded as modules
 
 log = logging.getLogger("aiko.core")
@@ -342,6 +342,107 @@ async def notify_chats(user=Admin):
     return await activity.bot_updates(activity.notify_settings())
 
 
+# ---------------------------------------------------------------- connections shared by every module
+def _integrations_view() -> dict:
+    key = integrations.openrouter_key()
+    return {"woo": integrations.woo_public(), "proxy_url": integrations.proxy_url(),
+            "openrouter": {"key_set": bool(key), "key_hint": f"…{key[-4:]}" if key else ""}}
+
+
+@router.get("/api/integrations")
+def integrations_get(user=Admin):
+    return _integrations_view()
+
+
+@router.put("/api/integrations")
+async def integrations_save(request: Request, user=Admin):
+    body = await request.json()
+    try:
+        if isinstance(body.get("woo"), dict):
+            integrations.save_woo(body["woo"])
+        if "proxy_url" in body:
+            integrations.save_proxy(body["proxy_url"] or "")
+        if body.get("openrouter_key"):
+            integrations.save_openrouter_key(body["openrouter_key"])
+        if body.get("clear_openrouter_key"):
+            integrations.save_openrouter_key("")
+    except integrations.IntegrationError as exc:
+        raise HTTPException(400, str(exc))
+    events.emit("integrations.saved", keys=sorted(k for k in body if k != "openrouter_key"))
+    activity.record(None, "core", "integrations", "تنظیمات اتصال‌ها تغییر کرد", f"توسط {user['name']}", user_id=user["id"])
+    return _integrations_view()
+
+
+@router.post("/api/integrations/woo/test")
+async def integrations_woo_test(user=Admin):
+    try:
+        return await integrations.test_woo()
+    except integrations.IntegrationError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/api/integrations/proxy/test")
+async def integrations_proxy_test(user=Admin):
+    return await integrations.test_proxy()
+
+
+# ---------------------------------------------------------------- off-site backups in a Telegram channel
+def _telegram_view() -> dict:
+    s = backup.telegram_settings()
+    return {"enabled": bool(s["enabled"]), "chat_id": s["chat_id"], "hours": int(s["hours"] or 1),
+            "token_set": bool((s.get("token") or "").strip()), "uses_notify_token": not (s.get("token") or "").strip()
+            and bool(backup.telegram_token(s)), "last_at": s["last_at"], "last_ok": s["last_ok"],
+            "last_error": s["last_error"], "last_size": s["last_size"], "proxy": bool(integrations.proxy_url())}
+
+
+@router.get("/api/backup/telegram")
+def backup_telegram_get(user=Admin):
+    return _telegram_view()
+
+
+@router.put("/api/backup/telegram")
+async def backup_telegram_save(request: Request, user=Admin):
+    body = await request.json()
+    changes = {}
+    if "enabled" in body:
+        changes["enabled"] = bool(body["enabled"])
+    if "chat_id" in body:
+        changes["chat_id"] = str(body["chat_id"] or "").strip()
+    if "hours" in body:
+        try:
+            changes["hours"] = min(24, max(1, int(body["hours"] or 1)))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "فاصله پشتیبان‌گیری باید عدد (ساعت) باشد")
+    if body.get("token"):
+        changes["token"] = str(body["token"]).strip()
+    if body.get("clear_token"):
+        changes["token"] = ""
+    backup._save_telegram(changes)
+    return _telegram_view()
+
+
+@router.get("/api/backup/telegram/chats")
+async def backup_telegram_chats(user=Admin):
+    """Channels/groups the backup bot has seen, so the owner can pick the channel id of a private channel."""
+    token = backup.telegram_token()
+    if not token:
+        raise HTTPException(400, "اول توکن ربات تلگرام را ذخیره کنید")
+    try:
+        return await activity.bot_updates({"bot": "telegram", "token": token})
+    except Exception as exc:
+        raise HTTPException(400, f"ارتباط با تلگرام برقرار نشد ({exc.__class__.__name__}) — پروکسی را بررسی کنید")
+
+
+@router.post("/api/backup/telegram/send")
+async def backup_telegram_send(user=Admin):
+    result = await backup.send_to_telegram(manual=True)
+    if not result["ok"]:
+        raise HTTPException(400, result["error"])
+    activity.record(None, "core", "backup", "پشتیبان به کانال تلگرام فرستاده شد", f"توسط {user['name']}",
+                    user_id=user["id"])
+    return result
+
+
 # ---------------------------------------------------------------- system
 @router.get("/api/system")
 def system(user=Admin):
@@ -355,7 +456,8 @@ def system(user=Admin):
     return {"version": config.VERSION or "dev", "python": platform.python_version(), "sqlite": sqlite3.sqlite_version,
             "modules": [{"id": m.id, "name": m.name} for m in modules.values()], "databases": dbs,
             "backups": backup.list_snapshots()[:15], "backup_keep_days": config.BACKUP_KEEP_DAYS,
-            "next_backup": next_backup[0].isoformat() if next_backup else None, "public_url": config.PUBLIC_URL}
+            "next_backup": next_backup[0].isoformat() if next_backup else None, "public_url": config.PUBLIC_URL,
+            "telegram": _telegram_view()}
 
 
 @router.post("/api/system/backup")

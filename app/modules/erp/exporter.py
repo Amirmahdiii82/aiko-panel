@@ -19,18 +19,19 @@ SHEETS = [
      ["کد", "نام", "برند", "دسته", "قیمت فروش", "میانگین قیمت تمام‌شده", "موجودی", "ارزش موجودی", "حد هشدار",
       "شناسه سایت", "وضعیت"], []),
     ("فروش", """SELECT s.code, s.date, s.channel, IFNULL(u.name, ''), IFNULL(s.customer_name, ''), IFNULL(s.customer_phone, ''),
-                      s.subtotal, s.discount, s.shipping, s.total, ROUND(s.cogs), ROUND(s.total - s.cogs), s.commission,
+                      s.subtotal, s.discount, s.shipping, s.refunded, s.total, ROUND(s.cogs), ROUND(s.total - s.cogs), s.commission,
                       CASE s.paid WHEN 1 THEN 'بله' ELSE 'خیر' END, IFNULL(a.name, ''),
-                      CASE s.status WHEN 'done' THEN '' ELSE 'باطل' END, IFNULL(s.note, '')
+                      CASE s.status WHEN 'done' THEN '' ELSE 'باطل' END,
+                      CASE s.source WHEN 'site' THEN 'سایت' WHEN 'sheet' THEN 'اکسل' ELSE 'پنل' END, IFNULL(s.note, '')
                FROM sales s LEFT JOIN users u ON u.id = s.seller_id LEFT JOIN accounts a ON a.id = s.account_id
                ORDER BY s.date, s.id""",
-     ["کد", "تاریخ", "کانال", "فروشنده", "مشتری", "تلفن", "جمع اقلام", "تخفیف", "ارسال", "مبلغ کل", "بهای تمام‌شده",
-      "سود ناخالص", "پورسانت", "پرداخت شده", "حساب دریافت", "وضعیت", "یادداشت"], [1]),
-    ("اقلام فروش", """SELECT s.code, s.date, IFNULL(p.sku, ''), i.name, i.qty, i.unit_price, ROUND(i.unit_cost), i.line_total,
-                            ROUND(i.line_total - i.qty * i.unit_cost), CASE s.status WHEN 'done' THEN '' ELSE 'باطل' END
+     ["کد", "تاریخ", "کانال", "فروشنده", "مشتری", "تلفن", "جمع اقلام", "تخفیف", "ارسال", "برگشت از سایت", "مبلغ کل",
+      "بهای تمام‌شده", "سود ناخالص", "پورسانت", "پرداخت شده", "حساب دریافت", "وضعیت", "منبع", "یادداشت"], [1]),
+    ("اقلام فروش", """SELECT s.code, s.date, IFNULL(p.sku, ''), i.name, i.qty, i.unit_price, ROUND(i.unit_cost), i.line_total, i.discount,
+                            ROUND(i.line_total - i.discount - i.qty * i.unit_cost), CASE s.status WHEN 'done' THEN '' ELSE 'باطل' END
                      FROM sale_items i JOIN sales s ON s.id = i.sale_id LEFT JOIN products p ON p.id = i.product_id
                      ORDER BY s.date, s.id""",
-     ["کد فروش", "تاریخ", "کد کالا", "کالا", "تعداد", "قیمت واحد", "قیمت تمام‌شده واحد", "جمع", "سود", "وضعیت"], [1]),
+     ["کد فروش", "تاریخ", "کد کالا", "کالا", "تعداد", "قیمت واحد", "قیمت تمام‌شده واحد", "جمع", "تخفیف", "سود", "وضعیت"], [1]),
     ("خرید", """SELECT p.code, p.date, IFNULL(p.supplier, ''), pr.sku, pr.name, i.qty, ROUND(i.unit_cost), ROUND(i.landed_cost),
                       i.line_total, IFNULL(a.name, ''), CASE p.status WHEN 'done' THEN '' ELSE 'باطل' END
                FROM purchase_items i JOIN purchases p ON p.id = i.purchase_id JOIN products pr ON pr.id = i.product_id

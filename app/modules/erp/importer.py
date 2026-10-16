@@ -103,6 +103,7 @@ def run(path: str, user: dict | None = None) -> dict:
         for o in orders.values():
             o["account_id"] = accounts.get(o["channel"])
             o["note"] = "از فایل اکسل"
+            o["source"] = "sheet"
             ledger.create_sale(con, o, None, quiet=True, legacy=True)
             report["sales"] += 1
 

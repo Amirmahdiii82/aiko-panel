@@ -8,6 +8,7 @@ from .router import router
 
 
 async def startup() -> None:
+    openrouter.adopt_legacy()
     service.recover_on_start()
     jobs.every("media.poll", 15, service.poll_due)
 

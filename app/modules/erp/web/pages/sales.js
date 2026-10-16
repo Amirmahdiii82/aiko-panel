@@ -109,16 +109,19 @@ export function openSale(id, changed) {
         <span class="badge primary">${icon(CHANNEL_ICON[sale.channel] || "tag")}${erp.me.channels[sale.channel]}</span>
         ${sale.status === "void" ? html`<span class="badge bad">باطل شده</span>` : sale.paid ? html`<span class="badge ok">پرداخت شده</span>` : html`<span class="badge warn">پرداخت نشده</span>`}
         ${sale.woo_order_id ? html`<a class="badge info" href="${siteUrl}/wp-admin/post.php?post=${sale.woo_order_id}&action=edit" target="_blank" rel="noopener">${icon("external-link")}سفارش سایت (${sale.woo_status})</a>` : ""}
+        ${sale.source === "sheet" ? html`<span class="badge">از اکسل</span>` : ""}
         <span class="spacer"></span><span class="small muted">${jdate(sale.date, { weekday: true })}</span>
       </div>
       <div class="list">${items.map((it) => html`<div class="list-item">${thumb(it, "sm")}
         <div class="grow"><div class="title small">${it.name}</div><div class="sub">${fa(it.qty)} × ${num(it.unit_price)}
           ${admin && it.unit_cost ? html`، قیمت خرید ${num(it.unit_cost)}` : ""}</div></div>
-        <b class="num">${num(it.line_total)}</b></div>`)}</div>
+        <div style="text-align:left"><b class="num">${num(it.line_total)}</b>${it.discount ? html`<div class="tiny muted num">تخفیف −${num(it.discount)}</div>` : ""}</div></div>`)}</div>
       <div class="inset totals">
         <div class="t-row"><span class="muted">جمع اقلام</span><span class="num">${num(sale.subtotal)}</span></div>
         ${sale.discount ? html`<div class="t-row"><span class="muted">تخفیف</span><span class="num">−${num(sale.discount)}</span></div>` : ""}
         ${sale.shipping ? html`<div class="t-row"><span class="muted">ارسال</span><span class="num">+${num(sale.shipping)}</span></div>` : ""}
+        ${sale.fees ? html`<div class="t-row"><span class="muted">کارمزد / هزینه اضافه سایت</span><span class="num">${sale.fees > 0 ? "+" : "−"}${num(Math.abs(sale.fees))}</span></div>` : ""}
+        ${sale.refunded ? html`<div class="t-row"><span class="muted">برگشت وجه در سایت</span><span class="num bad-ink">−${num(sale.refunded)}</span></div>` : ""}
         <div class="t-row t-grand"><span>مبلغ نهایی</span><span class="num">${toman(sale.total)}</span></div>
         ${admin ? html`<div class="t-row small"><span class="muted">سود ناخالص</span><span class="num ${profit < 0 ? "bad-ink" : "ok-ink"}">${num(profit)}</span></div>` : ""}
         ${sale.commission ? html`<div class="t-row small"><span class="muted">پورسانت فروشنده</span><span class="num">${num(sale.commission)}</span></div>` : ""}

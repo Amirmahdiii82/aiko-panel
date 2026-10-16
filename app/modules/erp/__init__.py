@@ -6,7 +6,7 @@ from pathlib import Path
 from ...core import db as core_db
 from ...core import events, jobs
 from ...core.modules import Module
-from . import db, ledger, notify, reports, woo
+from . import db, ledger, notify, reports, sitesync, woo
 from .router import ledger_profile, router
 
 DEFAULT_COLORS = ["#5B4B87", "#D27C6D", "#4D6F54", "#8D6324"]
@@ -48,11 +48,34 @@ def on_user_saved(user: dict, profile: dict, created: bool) -> None:
         ledger_profile(con, user["id"], user["name"], role, profile.get("erp") or {})
 
 
+def _nightly_site_sync() -> None:
+    """New site products and anything a webhook missed are picked up every night."""
+    if woo.configured() and not sitesync.running():
+        try:
+            sitesync.start(None)
+        except woo.WooError:
+            pass
+
+
+def tag_sources() -> None:
+    """Sales copied in by a one-time import after the schema change still say "manual"; name where they came from."""
+    with db.tx() as con:
+        con.execute("UPDATE sales SET source = 'site' WHERE source = 'manual' AND woo_order_id IS NOT NULL")
+        con.execute("""UPDATE sales SET source = 'sheet' WHERE source = 'manual' AND woo_order_id IS NULL
+                       AND note LIKE '%از فایل اکسل%'""")
+
+
 async def startup() -> None:
     db.seed_settings()
+    tag_sources()
+    woo.adopt_legacy_keys()
     bootstrap()
     events.on("user.saved", on_user_saved)
+    events.on("integrations.saved", lambda keys: woo.wake())
+    if sitesync.state().get("running"):                 # the app restarted mid-sync
+        sitesync._set_state(running=False, step="", error="همگام‌سازی با ری‌استارت برنامه نیمه‌کاره ماند؛ دوباره بزنید")
     jobs.supervise("erp.woo", woo.worker)
+    jobs.daily("erp.site_sync", "04:30", _nightly_site_sync)
 
 
 def summary(user: dict) -> dict:

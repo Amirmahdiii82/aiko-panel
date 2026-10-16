@@ -1,8 +1,9 @@
 """Minimal OpenRouter client for video/image generation (key and proxy never reach the browser).
 
-The key and an optional outbound proxy come from the media settings page, falling back to the
-OPENROUTER_API_KEY / OPENROUTER_PROXY_URL environment variables. httpx tunnels HTTPS through an
-HTTP CONNECT (or SOCKS) proxy natively.
+The key and the outbound proxy are shared connections (Settings → Connections, `app.core.integrations`):
+OpenRouter is not reachable from an Iranian server, so every request goes through that proxy.
+Only the monthly spending cap is the studio's own setting. httpx tunnels HTTPS through an HTTP CONNECT
+(or SOCKS) proxy natively.
 """
 import json
 import logging
@@ -11,6 +12,7 @@ import time
 import httpx
 
 from ...core import config as core_config
+from ...core import integrations
 from . import db
 
 log = logging.getLogger("aiko.media.openrouter")
@@ -28,9 +30,17 @@ class UpstreamError(Exception):
 
 def settings() -> dict:
     s = db.database.get_setting("openrouter", {}) or {}
-    return {"api_key": (s.get("api_key") or core_config.env("OPENROUTER_API_KEY")).strip(),
-            "proxy_url": (s.get("proxy_url") if "proxy_url" in s else core_config.env("OPENROUTER_PROXY_URL")).strip(),
+    return {"api_key": integrations.openrouter_key(), "proxy_url": integrations.proxy_url(),
             "monthly_limit_usd": float(s.get("monthly_limit_usd") or 0)}
+
+
+def adopt_legacy() -> None:
+    """The key and proxy used to be studio settings; hand them to the shared connections once."""
+    s = db.database.get_setting("openrouter", {}) or {}
+    integrations.adopt("openrouter", {"api_key": s.get("api_key") or core_config.env("OPENROUTER_API_KEY")})
+    integrations.adopt("network", {"proxy_url": s.get("proxy_url") or core_config.env("OPENROUTER_PROXY_URL")})
+    if s.get("api_key") or s.get("proxy_url"):
+        db.database.set_setting("openrouter", {k: v for k, v in s.items() if k not in ("api_key", "proxy_url")})
 
 
 def configured() -> bool:
@@ -40,7 +50,7 @@ def configured() -> bool:
 def _client(timeout: float) -> httpx.AsyncClient:
     s = settings()
     if not s["api_key"]:
-        raise UpstreamError(503, "کلید OpenRouter تنظیم نشده است (تنظیمات استودیو).", "missing_api_key")
+        raise UpstreamError(503, "کلید OpenRouter تنظیم نشده است (تنظیمات ← اتصال‌ها).", "missing_api_key")
     return httpx.AsyncClient(base_url=ORIGIN, timeout=httpx.Timeout(timeout, connect=20), proxy=s["proxy_url"] or None,
                              headers={"Authorization": f"Bearer {s['api_key']}", "X-Title": "Aiko Panel"},  # header values must be ASCII
                              follow_redirects=True)

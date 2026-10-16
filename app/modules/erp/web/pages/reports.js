@@ -34,7 +34,10 @@ export async function render(view, params, { setTitle }) {
 function body(r) {
   const t = r.totals, p = r.previous, inv = r.inventory;
   if (!t.orders && !t.expenses) return String(emptyState("chart-column", `در ${r.label} فروش یا هزینه‌ای ثبت نشده`));
+  const mcost = r.missing_cost || {};
   return html`<div class="stack">
+    ${mcost.lines ? html`<div class="callout warn">${icon("triangle-alert")}<div><b>${fa(mcost.lines)} ردیف فروش در این بازه قیمت خرید ندارد</b>
+      (${num(mcost.revenue)} تومان)، پس سود این بازه بیشتر از واقع نشان داده می‌شود. <a href="#/erp/products?f=nocost">وارد کردن قیمت خرید</a> — فروش‌های گذشته خودکار اصلاح می‌شوند.</div></div>` : ""}
     <div class="grid g4">
       ${moneyKpi({ label: "فروش", amount: t.revenue, color: "indigo", ico: "trending-up",
         foot: html`${p ? delta(t.revenue, p.revenue) : ""} ${fa(t.orders)} سفارش، ${fa(t.items)} عدد` })}

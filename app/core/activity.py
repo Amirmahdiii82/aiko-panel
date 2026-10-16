@@ -9,13 +9,20 @@ import sqlite3
 
 import httpx
 
-from . import db, events
+from . import db, events, integrations
 from .modules import loaded as modules
 
 log = logging.getLogger("aiko.activity")
 
 BOT_BASE = {"bale": "https://tapi.bale.ai/bot{token}/", "telegram": "https://api.telegram.org/bot{token}/"}
 DEFAULT_NOTIFY = {"bot": "bale", "token": "", "chat_ids": "", "kinds": {}}
+
+
+def bot_client(bot: str, timeout: float = 15) -> httpx.AsyncClient:
+    """Bale is domestic and reached directly; Telegram is filtered in Iran and goes through the outbound proxy."""
+    if bot == "telegram":
+        return integrations.abroad_client(timeout=httpx.Timeout(timeout, connect=15))
+    return httpx.AsyncClient(timeout=timeout)
 
 
 def record(con: sqlite3.Connection | None, module: str, kind: str, title: str, body: str = "", *,
@@ -85,7 +92,7 @@ async def send_bot(text: str, settings: dict | None = None) -> tuple[bool, str]:
         return False, "توکن ربات یا شناسه چت تنظیم نشده"
     url = base.format(token=token) + "sendMessage"
     errors = []
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with bot_client(settings.get("bot") or "bale") as client:
         for chat_id in chat_ids:
             try:
                 r = await client.post(url, json={"chat_id": chat_id, "text": text})
@@ -106,12 +113,14 @@ async def bot_updates(settings: dict) -> list[dict]:
     base = BOT_BASE.get(settings.get("bot") or "bale")
     if not token or not base:
         return []
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with bot_client(settings.get("bot") or "bale") as client:
         r = await client.get(base.format(token=token) + "getUpdates")
         data = r.json()
     chats = {}
     for upd in data.get("result", []) if isinstance(data, dict) else []:
-        msg = upd.get("message") or upd.get("edited_message") or {}
+        # private chats and groups send "message"; a channel the bot was added to sends "channel_post" / "my_chat_member"
+        msg = (upd.get("message") or upd.get("edited_message") or upd.get("channel_post")
+               or upd.get("my_chat_member") or {})
         chat = msg.get("chat") or {}
         if chat.get("id") is not None:
             name = chat.get("title") or " ".join(filter(None, [chat.get("first_name"), chat.get("last_name")])) \

@@ -66,6 +66,7 @@ def create_app() -> FastAPI:
                 await mod.startup()
         if config.BACKUP_TIME:
             jobs.daily("core.backup", config.BACKUP_TIME, backup.daily_job)
+        jobs.every("core.backup.telegram", 300, backup.telegram_tick)     # sends when due (hourly by default)
         jobs.start()
         log.info("ready: modules=%s data=%s", ",".join(modules.loaded), config.DATA_DIR)
         yield

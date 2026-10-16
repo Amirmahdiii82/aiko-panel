@@ -28,7 +28,7 @@ def meta():
     excluded = insights.excluded_sites()
     jobs = core_jobs.next_runs("pricing.crawl")
     return {
-        "own": {"name": config.OWN_SITE_NAME, "url": config.OWN_SITE_URL},
+        "own": {"name": config.OWN_SITE_NAME, "url": config.own_site_url()},
         "branding": db.get_setting("branding", {}) or {},
         "sites": [{"key": k, "name": n, "url": sources.HOMEPAGES.get(k), "enabled": k not in disabled,
                    "in_stats": k not in excluded, "marketplace": k in sources.MARKETPLACES} for k, n, _ in sources.COMPETITORS],

@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
 from ...core import events
-from . import config, db, exporter, importer, ledger, notify, reports, woo
+from . import config, db, exporter, importer, ledger, notify, reports, sitesync, woo
 from .deps import Admin, User
 
 router = APIRouter()
@@ -29,7 +29,7 @@ def me(user=User):
         brands = [r[0] for r in con.execute("SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL ORDER BY brand")]
         suppliers = [r[0] for r in con.execute(
             "SELECT DISTINCT supplier FROM purchases WHERE supplier IS NOT NULL ORDER BY supplier")]
-        woo_s = db.get_setting("woo", {}, con) or {}
+    woo_s = woo.settings()
     if user["role"] != "admin":
         accounts = [a for a in accounts if a["id"] == user["account_id"]]
         users = [u for u in users if u["id"] == user["id"]]
@@ -148,7 +148,7 @@ def product_detail(product_id: int, user=User):
                WHERE m.product_id = ? ORDER BY m.id DESC LIMIT 150""", (product_id,)))
         stats = db.one(con.execute(
             """SELECT IFNULL(SUM(i.qty), 0) AS qty, IFNULL(SUM(i.line_total), 0) AS revenue,
-                      IFNULL(SUM(i.line_total - i.qty * i.unit_cost), 0) AS profit, MAX(s.date) AS last_sale
+                      IFNULL(SUM(i.line_total - i.discount - i.qty * i.unit_cost), 0) AS profit, MAX(s.date) AS last_sale
                FROM sale_items i JOIN sales s ON s.id = i.sale_id WHERE i.product_id = ? AND s.status = 'done'""",
             (product_id,)))
     if user["role"] != "admin":
@@ -572,8 +572,9 @@ def report(period: str = "month", start: str = "", end: str = "", user=Admin):
 
 
 def _woo_public(s: dict) -> dict:
-    out = {k: v for k, v in s.items() if k not in ("secret", "webhook_secret")}
+    out = {k: v for k, v in s.items() if k not in ("secret", "webhook_secret", "key")}
     out["secret_set"] = bool(s.get("secret"))
+    out["key_set"] = bool(s.get("key"))
     out["webhook_secret"] = s.get("webhook_secret") or ""
     return out
 
@@ -589,49 +590,67 @@ def woo_status(request: Request, user=Admin):
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_stock IS NOT NULL AND woo_stock != MAX(stock, 0)
                           THEN 1 ELSE 0 END) AS mismatched
                FROM products WHERE active = 1"""))
+        sales = db.one(con.execute(
+            """SELECT SUM(CASE WHEN source = 'site' THEN 1 ELSE 0 END) AS site,
+                      SUM(CASE WHEN channel = 'website' AND woo_order_id IS NULL THEN 1 ELSE 0 END) AS manual_web
+               FROM sales WHERE status = 'done'"""))
         logs = db.rows(con.execute("SELECT * FROM woo_log ORDER BY id DESC LIMIT 40"))
+        review = sitesync.review(con)
     base = config.PUBLIC_URL or str(request.base_url).rstrip("/")
     catalog = db.get_setting("woo_catalog", {}) or {}
-    return {"settings": _woo_public(s), "configured": woo.configured(s), "counts": counts, "log": logs,
+    return {"settings": _woo_public(s), "configured": woo.configured(s), "counts": counts, "sales": sales, "log": logs,
             "webhook_url": f"{base}/api/erp/woo/webhook", "catalog_fetched_at": catalog.get("fetched_at"),
-            "catalog_source": catalog.get("source")}
+            "catalog_source": catalog.get("source"), "full_sync": sitesync.state(), "review": review}
 
 
 @router.put("/woo")
 async def woo_save(request: Request, user=Admin):
+    """Sync options only. The site address and keys are the shared connection (PUT /api/integrations)."""
     body = await request.json()
+    if any(k in body for k in ("url", "key", "secret", "query_auth")):
+        from ...core import integrations
+        integrations.save_woo({k: body[k] for k in ("url", "key", "secret", "query_auth") if k in body})
     with db.tx() as con:
         s = db.get_setting("woo", {}, con) or {}
-        for key in ("url", "key", "query_auth", "auto_push", "pull_minutes", "webhook_secret"):
+        turning_on = body.get("auto_push") and not s.get("auto_push")
+        for key in ("auto_push", "pull_minutes", "webhook_secret"):
             if key in body:
-                s[key] = body[key].strip().rstrip("/") if isinstance(body[key], str) else body[key]
-        if body.get("secret"):
-            s["secret"] = body["secret"].strip()
+                s[key] = body[key].strip() if isinstance(body[key], str) else body[key]
         if not s.get("webhook_secret"):
             s["webhook_secret"] = secrets.token_urlsafe(24)
-        turning_on = body.get("auto_push") and not db.get_setting("woo", {}, con).get("auto_push")
         db.set_setting("woo", s, con)
         if turning_on:
             notify.activity(con, "woo", "همگام‌سازی خودکار موجودی سایت روشن شد", f"توسط {user['name']}",
                             user_id=user["id"], level="success")
     woo.wake()
-    return _woo_public(s)
+    return _woo_public(woo.settings())
 
 
 @router.post("/woo/test")
 async def woo_test(user=Admin):
-    s = woo.settings()
-    result = await woo.test_connection(s)
+    result = await woo.test_connection()
     with db.tx() as con:
         saved = db.get_setting("woo", {}, con) or {}
-        if result.get("currency"):
-            saved["currency"] = result["currency"]
-        if not saved.get("last_order_sync"):
-            from datetime import datetime, timezone
-            saved["last_order_sync"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        if not saved.get("webhook_secret"):
+            saved["webhook_secret"] = secrets.token_urlsafe(24)
         db.set_setting("woo", saved, con)
     woo.wlog("test", True, f"اتصال برقرار شد — {result.get('products')} محصول، واحد پول: {result.get('currency')}")
     return result
+
+
+@router.post("/woo/full-sync")
+async def woo_full_sync(user=Admin):
+    sitesync.start(user)
+    return {"ok": True, "state": sitesync.state()}
+
+
+@router.post("/products/{product_id}/merge")
+async def merge_product(product_id: int, request: Request, user=Admin):
+    """Merge this product into another one (the same item recorded twice)."""
+    body = await request.json()
+    with db.tx() as con:
+        ledger.merge_products(con, product_id, int(body["into"]), user)
+    return {"ok": True}
 
 
 @router.post("/woo/catalog/refresh")

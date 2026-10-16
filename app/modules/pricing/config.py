@@ -3,8 +3,14 @@ from ...core import config as core
 
 env, env_int = core.env, core.env_int
 
-# Your own WooCommerce store (read through the public Store API — no key needed)
+# Your own WooCommerce store (read through the public Store API — no key needed). The address is the shared
+# WooCommerce connection (Settings → Connections), so ERP and pricing always talk to the same site.
 OWN_SITE_URL = env("OWN_SITE_URL", "https://aikocosmetics.ir").rstrip("/")
+
+
+def own_site_url() -> str:
+    from ...core import integrations
+    return integrations.woo()["url"] or OWN_SITE_URL
 OWN_SITE_NAME = env("OWN_SITE_NAME", "آیکو کازمتیکس")
 # Limit how many own products are processed (0 = all). Handy for a first test run.
 PRODUCT_LIMIT = env_int("PRODUCT_LIMIT", 0)

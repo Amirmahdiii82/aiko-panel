@@ -3,7 +3,11 @@
 * Stock flows from here to the site: whenever stock of a linked product changes, a background worker
   sets that exact quantity on the site (WooCommerce marks it "out of stock" by itself at 0).
 * Website orders flow from the site to here: a webhook delivers them instantly, and the worker also
-  polls recent orders every few minutes in case a webhook was missed. Each order becomes one sale.
+  polls recent orders every few minutes in case a webhook was missed. Each order becomes one sale with the
+  site's exact figures (line prices, coupons, shipping, fees, refunds).
+* The site address and API keys are the shared WooCommerce connection (Settings → Connections); only the
+  sync options (automatic stock push, polling interval, webhook secret, last sync) are ERP settings.
+* A full sync (sitesync.py) brings in every site product and every order since the shop opened.
 """
 import asyncio
 import base64
@@ -17,6 +21,7 @@ from difflib import SequenceMatcher
 
 import httpx
 
+from ...core import integrations
 from . import db, ledger, notify
 
 log = logging.getLogger("aiko.woo")
@@ -28,6 +33,15 @@ CURRENCY_FACTOR = {"IRR": 0.1, "IRHR": 100, "IRT": 1, "IRHT": 1000}
 _loop: asyncio.AbstractEventLoop | None = None
 _wake: asyncio.Event | None = None
 _pull_now = False
+_sync_lock: asyncio.Lock | None = None      # one order import at a time (worker poll vs. full sync)
+TEHRAN_OFFSET = "+03:30"
+
+
+def sync_lock() -> asyncio.Lock:
+    global _sync_lock
+    if _sync_lock is None:
+        _sync_lock = asyncio.Lock()
+    return _sync_lock
 
 
 class WooError(Exception):
@@ -62,12 +76,23 @@ async def _get_json(client: httpx.AsyncClient, url: str, params: dict) -> tuple[
 
 
 def settings() -> dict:
-    return db.get_setting("woo", {}) or {}
+    """ERP sync options + the shared connection (address, keys, currency) from core."""
+    return {**(db.get_setting("woo", {}) or {}), **integrations.woo()}
 
 
 def configured(s: dict | None = None) -> bool:
     s = s or settings()
     return bool(s.get("url") and s.get("key") and s.get("secret"))
+
+
+def adopt_legacy_keys() -> None:
+    """Keys used to be saved on the ERP site page; hand them to the shared connection once."""
+    s = db.get_setting("woo", {}) or {}
+    integrations.adopt("woo", {k: s.get(k) for k in ("url", "key", "secret", "query_auth", "currency")
+                               if k != "url" or s.get("key")})
+    if s.get("key") or s.get("secret"):
+        with db.tx() as con:
+            db.set_setting("woo", {k: v for k, v in s.items() if k not in ("url", "key", "secret", "query_auth", "currency")}, con)
 
 
 def to_toman(value, currency: str | None) -> int:
@@ -161,12 +186,14 @@ async def fetch_catalog() -> dict:
             products = await woo.paged("products", {"status": "any"})
             for p in products:
                 image = (p.get("images") or [{}])[0].get("src") if p.get("images") else None
+                cats = [_clean(c.get("name")) for c in p.get("categories") or []]
+                brand = next((_clean(b.get("name")) for b in p.get("brands") or []), "") or _attr(p, ("برند", "brand"))
                 entries.append({
                     "woo_id": p["id"], "variation_id": None, "type": p.get("type"), "name": _clean(p.get("name")),
                     "price": to_toman(p.get("price"), currency), "image": image, "url": p.get("permalink"),
                     "status": p.get("status"), "manage_stock": p.get("manage_stock") is True,
                     "stock": p.get("stock_quantity"), "in_stock": p.get("stock_status") == "instock",
-                    "sku": p.get("sku") or "",
+                    "sku": p.get("sku") or "", "categories": cats, "brand": brand,
                 })
                 if p.get("type") == "variable":
                     for v in await woo.paged(f"products/{p['id']}/variations"):
@@ -178,7 +205,7 @@ async def fetch_catalog() -> dict:
                             "image": (v.get("image") or {}).get("src") or image, "url": p.get("permalink"),
                             "status": v.get("status"), "manage_stock": v.get("manage_stock") is True,
                             "stock": v.get("stock_quantity"), "in_stock": v.get("stock_status") == "instock",
-                            "sku": v.get("sku") or "",
+                            "sku": v.get("sku") or "", "categories": cats, "brand": brand,
                         })
         source = "api"
     else:
@@ -226,6 +253,13 @@ def store_entries(products: list) -> list[dict]:
                 "stock": None, "in_stock": None, "sku": "",
             })
     return entries
+
+
+def _attr(p: dict, names: tuple) -> str:
+    for a in p.get("attributes") or []:
+        if (a.get("name") or "").strip().lower() in names and a.get("options"):
+            return _clean(a["options"][0])
+    return ""
 
 
 def _clean(name: str | None) -> str:
@@ -381,48 +415,166 @@ def _map_line(con, product_id: int, variation_id: int | None) -> dict | None:
                                  AND woo_variation_id IS NULL""", (product_id,)))
 
 
-def process_order(order: dict) -> str:
-    """Create, update or void the sale that mirrors one WooCommerce order. Returns what happened."""
+def order_figures(order: dict) -> dict:
+    """The money of one order exactly as the site has it, in Toman. Line amounts are the site's own
+    (not qty × a rounded unit price); `discount` is the coupon share of each line; refunds are taken off."""
+    currency = order.get("currency") or settings().get("currency") or "IRT"
+    lines = []
+    for li in order.get("line_items") or []:
+        qty = int(li.get("quantity") or 0)
+        if qty <= 0:
+            continue
+        before = to_toman(li.get("subtotal"), currency)        # after sale price, before coupons
+        after = to_toman(li.get("total"), currency)            # after coupons
+        lines.append({"woo_id": li.get("product_id") or None, "variation_id": li.get("variation_id") or None,
+                      "name": _clean(li.get("name")), "sku": li.get("sku") or "", "qty": qty,
+                      "line_total": before, "discount": max(0, before - after),
+                      "unit_price": int(round(before / qty))})
+    refunded = sum(abs(to_toman(r.get("total"), currency)) for r in order.get("refunds") or [])
+    gross = to_toman(order.get("total"), currency)
+    return {"lines": lines, "gross": gross, "refunded": refunded, "total": max(0, gross - refunded),
+            "shipping": to_toman(order.get("shipping_total"), currency),
+            "fees": sum(to_toman(f.get("total"), currency) for f in order.get("fee_lines") or []),
+            "tax": to_toman(order.get("total_tax"), currency),
+            "discount": to_toman(order.get("discount_total"), currency)}
+
+
+def _local_ts(order: dict) -> str:
+    raw = (order.get("date_created") or "")[:19]
+    return f"{raw}{TEHRAN_OFFSET}" if len(raw) == 19 else db.now()
+
+
+def ensure_product(con, line: dict, catalog: dict | None = None) -> int:
+    """A warehouse product for a site order line that has none yet. Every site product must exist here,
+    otherwise its sale would not reduce stock and would have no cost. Reuses a panel product with the same
+    SKU or the same name (linking it); otherwise creates one, linked to the site product/color."""
+    items = (catalog or db.get_setting("woo_catalog", {}) or {}).get("items") or []
+    key = (line["woo_id"], line["variation_id"])
+    entry = next((e for e in items if (e["woo_id"], e["variation_id"]) == key), None)
+    parent = next((e for e in items if e["woo_id"] == line["woo_id"] and e["variation_id"] is None), None)
+    on_site = entry is not None or not items      # no catalogue read yet: the order itself proves it is on the site
+    name = (entry or {}).get("name") or line["name"]
+    sku = (line.get("sku") or (entry or {}).get("sku") or "").strip()
+    unlinked = db.rows(con.execute("SELECT id, sku, name FROM products WHERE active = 1 AND woo_id IS NULL"))
+    match = next((p for p in unlinked if sku and p["sku"] == sku), None) or \
+        next((p for p in unlinked if normalize(p["name"]) in (normalize(name), normalize(line["name"]))), None)
+    if match and on_site:
+        link_product(con, match["id"], line["woo_id"], line["variation_id"], catalog)
+        return match["id"]
+    if match:
+        return match["id"]
+    if sku and con.execute("SELECT 1 FROM products WHERE sku = ?", (sku,)).fetchone():
+        sku = ""
+    info = entry or parent or {}
+    pid = ledger.create_product(con, {
+        "name": name, "sku": sku, "price": (entry or {}).get("price") or line["unit_price"],
+        "category": _category(con, info.get("categories") or []), "brand": info.get("brand") or None,
+        "image": info.get("image"), "woo_id": line["woo_id"] if on_site else None,
+        "woo_variation_id": line["variation_id"] if on_site else None, "woo_name": name if on_site else None,
+        "woo_url": info.get("url"), "notes": None if on_site else "از سفارش‌های قدیمی سایت (این محصول دیگر در سایت نیست)",
+    }, None, quiet=True)
+    con.execute("UPDATE products SET site_created = 1, woo_stock = ? WHERE id = ?", ((entry or {}).get("stock"), pid))
+    return pid
+
+
+def _category(con, site_categories: list[str]) -> str | None:
+    """The site's category, mapped to one of the shop's own categories when the names are close."""
+    if not site_categories:
+        return None
+    ours = db.get_setting("product_categories", [], con) or []
+    for c in site_categories:
+        for o in ours:
+            if normalize(o) and (normalize(o) in normalize(c) or normalize(c) in normalize(o)):
+                return o
+    return site_categories[0]
+
+
+def find_twin(con, day: str, product_ids: set[int], amount: int, exclude: set[int] | None = None) -> dict | None:
+    """A website sale typed in by hand or imported from the sheet that is the same purchase as a site order:
+    within 3 days and with the same products or the same item amount. The site's figures replace it."""
+    d = datetime.fromisoformat(day[:10]).date()
+    rows = db.rows(con.execute(
+        """SELECT id, code, date, subtotal, discount FROM sales WHERE status = 'done' AND channel = 'website'
+           AND woo_order_id IS NULL AND date BETWEEN ? AND ?""",
+        ((d - timedelta(days=3)).isoformat(), (d + timedelta(days=3)).isoformat())))
+    best, best_key = None, None
+    for r in rows:
+        if exclude and r["id"] in exclude:
+            continue
+        theirs = {x[0] for x in con.execute("SELECT product_id FROM sale_items WHERE sale_id = ? AND product_id IS NOT NULL",
+                                            (r["id"],))}
+        union = product_ids | theirs
+        overlap = len(product_ids & theirs) / len(union) if union else 0
+        amt = r["subtotal"] - r["discount"]
+        amount_ok = amount > 0 and abs(amt - amount) <= max(1000, amount * 0.02)
+        if overlap < 0.5 and not amount_ok:
+            continue
+        key = (overlap >= 0.5 and amount_ok, overlap, amount_ok, -abs((datetime.fromisoformat(r["date"]).date() - d).days))
+        if best_key is None or key > best_key:
+            best, best_key = r, key
+    return best
+
+
+def process_order(order: dict, *, quiet: bool = False, catalog: dict | None = None) -> str:
+    """Create, update or void the sale that mirrors one WooCommerce order. Returns what happened.
+    `quiet` (history import): no bot messages or stock alerts, and the sale keeps the order's own time."""
     oid, status = order.get("id"), order.get("status")
     if not oid or not status:
         return "ignored"
-    currency = order.get("currency") or "IRT"
+    fig = order_figures(order)
     with db.tx() as con:
         existing = db.one(con.execute("SELECT * FROM sales WHERE woo_order_id = ?", (oid,)))
         if status in COUNTED and not existing:
-            items, unmapped = [], []
-            for li in order.get("line_items") or []:
-                qty = int(li.get("quantity") or 0)
-                if qty <= 0:
-                    continue
-                mapped = _map_line(con, li.get("product_id"), li.get("variation_id") or None)
-                unit_price = to_toman(float(li.get("subtotal") or 0) / qty, currency)
+            items, created_products = [], 0
+            for li in fig["lines"]:
+                mapped = _map_line(con, li["woo_id"], li["variation_id"]) if li["woo_id"] else None
                 if mapped:
-                    items.append({"product_id": mapped["id"], "qty": qty, "unit_price": unit_price})
+                    pid = mapped["id"]
+                elif li["woo_id"]:
+                    pid = ensure_product(con, li, catalog)
+                    created_products += 1
                 else:
-                    unmapped.append(li.get("name") or "")
-                    items.append({"name": f"{li.get('name')} (به انبار وصل نیست)", "qty": qty, "unit_price": unit_price})
+                    pid = None          # a custom line added by hand in the order
+                items.append({"product_id": pid, "name": li["name"], "keep_name": True, "qty": li["qty"],
+                              "unit_price": li["unit_price"], "line_total": li["line_total"], "discount": li["discount"]})
             if not items:
                 return "empty"
-            billing = order.get("billing") or {}
             created = (order.get("date_created") or db.today())[:10]
+            amount = sum(i["line_total"] - i["discount"] for i in items)
+            twin = find_twin(con, created, {i["product_id"] for i in items if i["product_id"]}, amount)
+            replaced = None
+            if twin:
+                # keep the purchase cost the sheet knew for each product; everything else comes from the site
+                old = ledger.delete_sale(con, twin["id"])
+                costs = {i["product_id"]: i["unit_cost"] for i in old if i["product_id"] and i["unit_cost"]}
+                for it in items:
+                    if it["product_id"] in costs:
+                        it["unit_cost"] = costs[it["product_id"]]
+                replaced = twin["code"]
+            billing = order.get("billing") or {}
             account = (db.get_setting("channel_accounts", {}, con) or {}).get("website")
             number = order.get("number") or oid
+            note = f"سفارش سایت #{number} — {order.get('payment_method_title') or ''}".strip(" —")
+            if replaced:
+                note += f" (جایگزین {replaced} که دستی/از اکسل ثبت شده بود)"
             sale_id = ledger.create_sale(con, {
-                "code": f"WEB-{number}", "date": created, "channel": "website",
+                "code": f"WEB-{number}", "date": created, "channel": "website", "source": "site",
                 "customer_name": " ".join(filter(None, [billing.get("first_name"), billing.get("last_name")])),
                 "customer_phone": billing.get("phone"), "items": items,
-                "discount": to_toman(order.get("discount_total"), currency),
-                "shipping": to_toman(order.get("shipping_total"), currency),
-                "total": to_toman(order.get("total"), currency),
+                "discount": fig["discount"], "shipping": fig["shipping"], "total": fig["total"],
+                "refunded": fig["refunded"], "fees": fig["fees"], "tax": fig["tax"],
                 "paid": status != "on-hold", "account_id": account, "woo_order_id": oid, "woo_status": status,
-                "note": f"سفارش سایت #{number} — {order.get('payment_method_title') or ''}".strip(" —"),
-            }, None)
-            if unmapped:
-                notify.activity(con, "sync_warning", "سفارش سایت محصولی دارد که به انبار وصل نیست",
-                                "، ".join(unmapped) + " — موجودی این‌ها کم نشد. از صفحه «سایت» وصلشان کنید.",
+                "note": note,
+            }, None, quiet=quiet)
+            if quiet:
+                ts = _local_ts(order)
+                con.execute("UPDATE sales SET created_at = ?, updated_at = ? WHERE id = ?", (ts, ts, sale_id))
+                con.execute("UPDATE stock_moves SET created_at = ? WHERE ref_type = 'sale' AND ref_id = ?", (ts, sale_id))
+            elif created_products:
+                notify.activity(con, "sync_warning", "سفارش سایت محصول تازه‌ای داشت که در انبار ساخته شد",
+                                "قیمت خرید این محصول را در انبار وارد کنید تا سود این فروش درست حساب شود.",
                                 level="warning", link=f"#/erp/sales/{sale_id}", notify=True)
-            return "created"
+            return "replaced" if replaced else "created"
         if not existing:
             return "ignored"
         if status in CANCELLED and existing["status"] == "done":
@@ -430,12 +582,21 @@ def process_order(order: dict) -> str:
             con.execute("UPDATE sales SET woo_status = ? WHERE id = ?", (status, existing["id"]))
             return "voided"
         if status in COUNTED and existing["status"] == "void":
-            notify.activity(con, "sync_warning", f"سفارش لغوشده {existing['code']} در سایت دوباره فعال شد",
-                            "موجودی خودکار کم نشد؛ لطفاً بررسی کنید و در صورت نیاز فروش را دوباره ثبت کنید.",
-                            level="warning", link=f"#/erp/sales/{existing['id']}", notify=True)
+            if not quiet:
+                notify.activity(con, "sync_warning", f"سفارش لغوشده {existing['code']} در سایت دوباره فعال شد",
+                                "موجودی خودکار کم نشد؛ لطفاً بررسی کنید و در صورت نیاز فروش را دوباره ثبت کنید.",
+                                level="warning", link=f"#/erp/sales/{existing['id']}", notify=True)
         paid = 1 if status in ("processing", "completed") else existing["paid"]
-        con.execute("UPDATE sales SET woo_status = ?, paid = ?, updated_at = ? WHERE id = ?",
-                    (status, paid, db.now(), existing["id"]))
+        changed_money = existing["status"] == "done" and (fig["total"], fig["refunded"]) != (existing["total"], existing["refunded"])
+        con.execute("""UPDATE sales SET woo_status = ?, paid = ?, total = ?, refunded = ?, shipping = ?, fees = ?, tax = ?,
+                       updated_at = ? WHERE id = ?""",
+                    (status, paid, fig["total"] if existing["status"] == "done" else existing["total"], fig["refunded"],
+                     fig["shipping"], fig["fees"], fig["tax"], db.now(), existing["id"]))
+        if changed_money and not quiet:
+            notify.activity(con, "sync_warning", f"مبلغ سفارش سایت {existing['code']} تغییر کرد",
+                            f"{ledger.toman(existing['total'])} ← {ledger.toman(fig['total'])}"
+                            + (f" (برگشت وجه {ledger.toman(fig['refunded'])})" if fig["refunded"] else ""),
+                            level="warning", link=f"#/erp/sales/{existing['id']}", notify=True)
         notify.publish_after(con, {"type": "refresh", "scope": "sales"})
         return "updated"
 
@@ -455,9 +616,10 @@ async def pull_orders(since_iso: str | None = None) -> dict:
     counts: dict[str, int] = {}
     async with Woo(s) as woo:
         orders = await woo.paged("orders", {"modified_after": since_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                                            "dates_are_gmt": "true", "orderby": "date", "order": "asc"}, limit_pages=10)
+                                            "dates_are_gmt": "true", "orderby": "date", "order": "asc"}, limit_pages=100)
+    quiet = since_iso is not None            # reading history by hand: no message per old order
     for order in orders:
-        result = await asyncio.to_thread(process_order, order)
+        result = await asyncio.to_thread(process_order, order, quiet=quiet)
         counts[result] = counts.get(result, 0) + 1
     _save_woo({"last_order_sync": started.isoformat()})
     if orders:
@@ -480,17 +642,11 @@ def verify_webhook(body: bytes, signature: str | None) -> bool:
     return hmac.compare_digest(expected, signature.strip())
 
 
-async def test_connection(s: dict) -> dict:
-    async with Woo(s) as woo:
-        data, headers = await woo.request("GET", "products", {"per_page": 1})
-        total = headers.get("x-wp-total")
-        currency = None
-        try:
-            cur, _ = await woo.request("GET", "settings/general/woocommerce_currency")
-            currency = cur.get("value")
-        except WooError:
-            pass
-    return {"ok": True, "products": int(total) if total else len(data), "currency": currency}
+async def test_connection(s: dict | None = None) -> dict:
+    try:
+        return await integrations.test_woo()
+    except integrations.IntegrationError as exc:
+        raise WooError(str(exc))
 
 
 # ---------------------------------------------------------------- background worker
@@ -522,6 +678,8 @@ async def worker() -> None:
         s = settings()
         if not configured(s):
             continue
+        if sync_lock().locked():         # a full sync is importing history; it pushes nothing and polls after
+            continue
         try:
             if s.get("auto_push"):
                 await push_pending()
@@ -529,7 +687,8 @@ async def worker() -> None:
             if _pull_now or time.monotonic() - last_pull >= minutes * 60:
                 _pull_now = False
                 last_pull = time.monotonic()
-                await pull_orders()
+                async with sync_lock():
+                    await pull_orders()
         except WooError as exc:
             wlog("worker", False, str(exc))
             last_pull = time.monotonic()

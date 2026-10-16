@@ -9,6 +9,7 @@ const FILTERS = [
   { key: "out", label: "ناموجود", test: (p) => p.stock <= 0 },
   { key: "unlinked", label: "وصل نشده به سایت", test: (p) => !p.woo_id, admin: true },
   { key: "error", label: "خطای سایت", test: (p) => p.woo_state === "error", admin: true },
+  { key: "nocost", label: "بدون قیمت خرید", test: (p) => !p.avg_cost && (p.stock > 0 || p.sold_total > 0), admin: true },
   { key: "archived", label: "بایگانی", admin: true },
 ];
 const MOVE_LABEL = { opening: "موجودی اولیه", purchase: "خرید", sale: "فروش", sale_void: "برگشت فروش", adjust: "اصلاح دستی",

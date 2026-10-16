@@ -4,7 +4,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
-from ...core import auth
+from ...core import auth, integrations
 from . import openrouter, service, validation
 from .openrouter import UpstreamError
 
@@ -39,15 +39,16 @@ def get_settings(user=Owner):
 async def save_settings(request: Request, user=Owner):
     body = await request.json()
     current = service.db.database.get_setting("openrouter", {}) or {}
+    # the key and proxy are shared connections (Settings → Connections); accepted here too for older screens
     if body.get("api_key"):
-        current["api_key"] = str(body["api_key"]).strip()
+        integrations.save_openrouter_key(str(body["api_key"]))
     if body.get("clear_key"):
-        current["api_key"] = ""
+        integrations.save_openrouter_key("")
     if "proxy_url" in body:
-        proxy = str(body["proxy_url"] or "").strip()
-        if proxy and not proxy.split("://")[0] in ("http", "https", "socks5", "socks5h"):
-            raise HTTPException(400, "آدرس پروکسی باید با http:// یا socks5:// شروع شود")
-        current["proxy_url"] = proxy
+        try:
+            integrations.save_proxy(str(body["proxy_url"] or ""))
+        except integrations.IntegrationError as exc:
+            raise HTTPException(400, str(exc))
     if "monthly_limit_usd" in body:
         try:
             current["monthly_limit_usd"] = max(0.0, float(body["monthly_limit_usd"] or 0))

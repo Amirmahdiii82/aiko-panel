@@ -137,6 +137,8 @@ def update_product(con, product_id: int, data: dict, user_id: int | None = None)
     if not sets:
         return
     con.execute(f"UPDATE products SET {', '.join(sets)}, updated_at = ? WHERE id = ?", (*args, db.now(), product_id))
+    if "avg_cost" in data:
+        fill_missing_costs(con, [product_id])
     notify.publish_after(con, {"type": "refresh", "scope": "products"})
 
 
@@ -251,6 +253,82 @@ def split_product(con, product_id: int, variants: list[dict], user: dict) -> lis
     return new_ids
 
 
+def fill_missing_costs(con, product_ids: list[int] | None = None) -> int:
+    """Sales recorded before a product's purchase cost was known (e.g. site orders of a product that was
+    created from the site) have a cost of 0, which would show the whole price as profit. Once the product
+    has a cost, give those lines that cost and recompute the cost of goods of their sales.
+    Returns how many lines were fixed."""
+    where, args = "", []
+    if product_ids:
+        where = f" AND i.product_id IN ({','.join('?' * len(product_ids))})"
+        args = list(product_ids)
+    rows = con.execute(
+        f"""SELECT i.id, i.sale_id, p.avg_cost FROM sale_items i JOIN products p ON p.id = i.product_id
+            WHERE i.unit_cost = 0 AND p.avg_cost > 0{where}""", args).fetchall()
+    for r in rows:
+        con.execute("UPDATE sale_items SET unit_cost = ? WHERE id = ?", (r["avg_cost"], r["id"]))
+    for sale_id in {r["sale_id"] for r in rows}:
+        con.execute("""UPDATE sales SET cogs = (SELECT IFNULL(SUM(qty * unit_cost), 0) FROM sale_items WHERE sale_id = ?)
+                       WHERE id = ?""", (sale_id, sale_id))
+    if rows:
+        notify.publish_after(con, {"type": "refresh", "scope": "sales"})
+    return len(rows)
+
+
+def missing_costs(con, start: str = "2000-01-01", end: str = "2100-01-01") -> dict:
+    """Sold lines whose cost is unknown (0): their profit is overstated until the cost is entered."""
+    r = con.execute(
+        """SELECT COUNT(*) AS lines, IFNULL(SUM(i.line_total - i.discount), 0) AS revenue,
+                  COUNT(DISTINCT IFNULL(i.product_id, -i.id)) AS products
+           FROM sale_items i JOIN sales s ON s.id = i.sale_id
+           WHERE s.status = 'done' AND i.unit_cost = 0 AND s.date BETWEEN ? AND ?""", (start, end)).fetchone()
+    stock = con.execute("SELECT COUNT(*) FROM products WHERE active = 1 AND avg_cost = 0 AND stock > 0").fetchone()[0]
+    return {"lines": r["lines"], "revenue": int(r["revenue"]), "products": r["products"], "stock_products": stock}
+
+
+def merge_products(con, source_id: int, target_id: int, user: dict) -> None:
+    """Two records of the same item (e.g. one from the old sheet, one created from the site): move every
+    sale, purchase and stock move of `source` to `target`, rebuild target's stock and cost, retire source."""
+    if source_id == target_id:
+        raise LedgerError("یک محصول را نمی‌توان با خودش ادغام کرد")
+    src, dst = get_product(con, source_id), get_product(con, target_id)
+    for table in ("stock_moves", "sale_items", "purchase_items"):
+        con.execute(f"UPDATE {table} SET product_id = ? WHERE product_id = ?", (target_id, source_id))
+    link = {}
+    if dst["woo_id"] is None and src["woo_id"] is not None:
+        link = {"woo_id": src["woo_id"], "woo_variation_id": src["woo_variation_id"], "woo_name": src["woo_name"],
+                "woo_url": src["woo_url"], "woo_stock": src["woo_stock"]}
+    con.execute("""UPDATE products SET active = 0, stock = 0, woo_id = NULL, woo_variation_id = NULL, woo_state = NULL,
+                   notes = TRIM(IFNULL(notes, '') || ' ' || ?), updated_at = ? WHERE id = ?""",
+                (f"[ادغام شد در {dst['sku'] or dst['name']}]", db.now(), source_id))
+    if link:
+        con.execute("""UPDATE products SET woo_id = ?, woo_variation_id = ?, woo_name = ?, woo_url = ?, woo_stock = ?
+                       WHERE id = ?""", (*link.values(), target_id))
+    con.execute("""UPDATE products SET site_created = 0, image = COALESCE(image, ?), brand = COALESCE(brand, ?),
+                   category = COALESCE(category, ?) WHERE id = ?""", (src["image"], src["brand"], src["category"], target_id))
+    recompute_product(con, target_id)
+    fill_missing_costs(con, [target_id])
+    notify.activity(con, "merge", f"«{src['name']}» با «{dst['name']}» ادغام شد",
+                    "همه فروش‌ها، خریدها و موجودی به یک محصول منتقل شد.", user_id=user["id"],
+                    link=f"#/erp/products/{target_id}")
+    notify.publish_after(con, {"type": "refresh", "scope": "products"})
+
+
+def delete_sale(con, sale_id: int) -> list[dict]:
+    """Remove a sale as if it was never recorded (used when the site's exact order replaces a copy that was
+    typed in by hand or came from the sheet). Returns its items so their costs can be kept."""
+    items = db.rows(con.execute("SELECT * FROM sale_items WHERE sale_id = ?", (sale_id,)))
+    pids = {r[0] for r in con.execute(
+        "SELECT DISTINCT product_id FROM stock_moves WHERE ref_type = 'sale' AND ref_id = ?", (sale_id,))}
+    con.execute("DELETE FROM stock_moves WHERE ref_type = 'sale' AND ref_id = ?", (sale_id,))
+    con.execute("DELETE FROM expenses WHERE sale_id = ?", (sale_id,))
+    con.execute("DELETE FROM sale_items WHERE sale_id = ?", (sale_id,))
+    con.execute("DELETE FROM sales WHERE id = ?", (sale_id,))
+    for pid in pids:
+        recompute_product(con, pid)
+    return items
+
+
 # ---------------------------------------------------------------- sales
 
 def _items_summary(items: list[dict], stocks: dict[int, int]) -> str:
@@ -279,19 +357,27 @@ def create_sale(con, data: dict, user: dict | None, *, quiet: bool = False, lega
     for raw in items_in:
         qty = _int(raw.get("qty"), "تعداد", minimum=1)
         price = _int(raw.get("unit_price"), "قیمت")
+        # an exact line amount (e.g. from a site order) wins over qty × rounded unit price
+        line_total = _int(raw["line_total"], "مبلغ ردیف") if raw.get("line_total") is not None else qty * price
+        line_discount = _int(raw.get("discount"), "تخفیف ردیف")
         pid = raw.get("product_id")
         if pid:
             p = get_product(con, int(pid))
             unit_cost = float(raw["unit_cost"]) if raw.get("unit_cost") is not None else p["avg_cost"]
-            items.append({"product_id": p["id"], "name": p["name"], "qty": qty, "unit_price": price,
-                          "unit_cost": unit_cost, "line_total": qty * price})
+            name = (raw.get("name") or "").strip() if raw.get("keep_name") else p["name"]
+            items.append({"product_id": p["id"], "name": name or p["name"], "qty": qty, "unit_price": price,
+                          "unit_cost": unit_cost, "line_total": line_total, "discount": line_discount})
         else:
             name = (raw.get("name") or "").strip() or "محصول نامشخص"
             items.append({"product_id": None, "name": name, "qty": qty, "unit_price": price,
-                          "unit_cost": float(raw.get("unit_cost") or 0), "line_total": qty * price})
+                          "unit_cost": float(raw.get("unit_cost") or 0), "line_total": line_total,
+                          "discount": line_discount})
 
     subtotal = sum(i["line_total"] for i in items)
-    discount = _int(data.get("discount"), "تخفیف")
+    if data.get("discount") in (None, "") and any(i["discount"] for i in items):
+        discount = sum(i["discount"] for i in items)
+    else:
+        discount = _int(data.get("discount"), "تخفیف")
     shipping = _int(data.get("shipping"), "هزینه ارسال")
     if "total" in data and data["total"] not in (None, ""):
         total = _int(data["total"], "مبلغ کل")
@@ -306,24 +392,27 @@ def create_sale(con, data: dict, user: dict | None, *, quiet: bool = False, lega
     account_id = data.get("account_id") or None
     paid = 1 if data.get("paid", True) else 0
 
+    source = data.get("source") or ("site" if data.get("woo_order_id") else "manual")
     cur = con.execute(
         """INSERT INTO sales (code, date, channel, seller_id, customer_name, customer_phone, subtotal, discount, shipping,
                               total, cogs, commission, paid, account_id, status, woo_order_id, woo_status, note,
-                              created_by, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?)""",
+                              refunded, fees, tax, source, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (data.get("code"), _date(data.get("date")), channel, seller_id, (data.get("customer_name") or "").strip() or None,
          (data.get("customer_phone") or "").strip() or None, subtotal, discount, shipping, total, cogs, commission,
          paid, account_id, data.get("woo_order_id"), data.get("woo_status"), (data.get("note") or "").strip() or None,
-         user["id"] if user else None, db.now(), db.now()))
+         _int(data.get("refunded"), "مبلغ برگشتی"), _int(data.get("fees"), "کارمزد", minimum=None),
+         _int(data.get("tax"), "مالیات"), source, user["id"] if user else None, db.now(), db.now()))
     sale_id = cur.lastrowid
     if not data.get("code"):
         con.execute("UPDATE sales SET code = ? WHERE id = ?", (f"S-{sale_id}", sale_id))
 
     stocks = {}
     for it in items:
-        con.execute("""INSERT INTO sale_items (sale_id, product_id, name, qty, unit_price, unit_cost, line_total)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (sale_id, it["product_id"], it["name"], it["qty"], it["unit_price"], it["unit_cost"], it["line_total"]))
+        con.execute("""INSERT INTO sale_items (sale_id, product_id, name, qty, unit_price, unit_cost, line_total, discount)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (sale_id, it["product_id"], it["name"], it["qty"], it["unit_price"], it["unit_cost"], it["line_total"],
+                     it["discount"]))
         if it["product_id"]:
             res = add_move(con, it["product_id"], -it["qty"], "sale", ref_type="sale", ref_id=sale_id,
                            user_id=user["id"] if user else None, quiet=quiet)
@@ -440,6 +529,7 @@ def create_purchase(con, data: dict, user: dict | None, *, quiet: bool = False) 
                     (purchase_id, l["product_id"], l["qty"], l["unit_cost"], landed, l["line_total"]))
         add_move(con, l["product_id"], l["qty"], "purchase", unit_cost=landed, ref_type="purchase", ref_id=purchase_id,
                  user_id=user["id"] if user else None, quiet=True)
+    fill_missing_costs(con, [l["product_id"] for l in lines])
     if not quiet:
         supplier = f" از {data.get('supplier')}" if data.get("supplier") else ""
         notify.activity(con, "purchase", f"📦 خرید کالا{supplier}",
