@@ -290,7 +290,7 @@ export async function render(view, params, { setTitle, query }) {
   function openPicker() {
     let term = "";
     const s = sheet({ title: st.compare ? `انتخاب تا ${fa(MAX_COMPARE)} مدل برای مقایسه` : "انتخاب مدل", size: "wide",
-      body: html`<div class="stack s12"><div class="input-wrap">${icon("search")}<input class="input" id="msearch" placeholder="جستجوی مدل… (مثلاً veo، kling، gpt-image)" autocomplete="off"></div>
+      body: html`<div class="stack s12"><div class="input-wrap">${icon("search")}<input enterkeyhint="search" class="input" id="msearch" placeholder="جستجوی مدل… (مثلاً veo، kling، gpt-image)" autocomplete="off"></div>
         <div class="small muted" id="mcount"></div><div class="model-list" id="mlist"></div></div>`,
       foot: html`<button class="btn primary" data-close>${icon("check")} تأیید</button>` });
     const draw = () => {

@@ -24,14 +24,14 @@ export async function render(view, params, { setTitle }) {
   view.innerHTML = String(html`<div class="grid side-r">
     <section class="stack s12" style="min-width:0">
       <div class="card tight">
-        <div class="input-wrap">${icon("search")}<input class="input" id="q" placeholder="جستجوی نام، برند یا کد محصول…" autocomplete="off"></div>
+        <div class="input-wrap">${icon("search")}<input enterkeyhint="search" class="input" id="q" placeholder="جستجوی نام، برند یا کد محصول…" autocomplete="off"></div>
         <div class="chips scroll mt12" id="cats"></div>
       </div>
       <div class="tiles" id="tiles"></div>
     </section>
     <aside class="card cart" id="cart"></aside>
   </div>
-  <button class="btn brand lg hidden" id="cart-bar" style="position:fixed;left:16px;right:16px;bottom:calc(92px + env(safe-area-inset-bottom));z-index:39"></button>`);
+  <button class="btn brand lg hidden cart-bar" id="cart-bar"></button>`);
 
   const tilesEl = $("#tiles", view), cartEl = $("#cart", view), catsEl = $("#cats", view), bar = $("#cart-bar", view);
 
@@ -142,6 +142,7 @@ export async function render(view, params, { setTitle }) {
     if (by > 0 && p.stock - line.qty < 0) toast(`از «${p.name}» فقط ${fa(Math.max(0, p.stock))} عدد در انبار ثبت شده`, "info");
     drawTiles();
     drawCart();
+    if (by > 0) tilesEl.querySelector(`[data-add="${id}"] .in-cart`)?.classList.add("bump");
   }
 
   drawCats(); drawTiles(); drawCart();

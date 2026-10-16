@@ -7,7 +7,8 @@ on("theme", () => setTimeout(() => charts.forEach((c) => c.__refresh && c.__refr
 function base() {
   const ink = cssVar("--muted") || "#6E687F";
   return {
-    responsive: true, maintainAspectRatio: false, animation: { duration: 500 },
+    // numbers people read and compare: they appear in place instead of growing in on every visit
+    responsive: true, maintainAspectRatio: false, animation: false,
     locale: "fa-IR",
     plugins: {
       legend: { display: false, rtl: true, labels: { font: { family: "Vazirmatn" }, color: ink, usePointStyle: true, boxWidth: 8 } },

@@ -947,3 +947,5 @@ table.t tfoot td { font-weight: 700; border-top: 1px solid var(--line-2); border
   .card { box-shadow: none; border: 1px solid #ddd; }
   body { background: #fff; }
 }
+/* light ↔ dark: a quick crossfade of the whole page (view transition) instead of an instant brightness jump */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 260ms; animation-timing-function: ease; }

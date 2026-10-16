@@ -28,7 +28,7 @@ export async function render(view, params, { setTitle, query }) {
   view.innerHTML = String(html`<div class="stack">
     <div class="card tight">
       <div class="row">
-        <div class="input-wrap" style="flex:1;min-width:220px">${icon("search")}<input class="input" id="q" placeholder="جستجو در نام، برند، کد…"></div>
+        <div class="input-wrap" style="flex:1;min-width:220px">${icon("search")}<input enterkeyhint="search" class="input" id="q" placeholder="جستجو در نام، برند، کد…"></div>
         <select class="select" id="cat" style="width:auto;min-width:150px"></select>
         ${admin ? html`<button class="btn primary" id="new">${icon("plus")} محصول جدید</button>` : ""}
       </div>

@@ -12,7 +12,7 @@ export async function render(view, params, { setTitle }) {
   view.innerHTML = String(html`<div class="stack pricing">
     <div class="card tight"><div class="stack s12">
       <div class="row">
-        <div class="input-wrap" style="flex:1 1 260px">${icon("search")}<input class="input" type="search" id="fq" placeholder="جستجوی نام یا برند…" value="${f.q}"></div>
+        <div class="input-wrap" style="flex:1 1 260px">${icon("search")}<input enterkeyhint="search" class="input" type="search" id="fq" placeholder="جستجوی نام یا برند…" value="${f.q}"></div>
         <select class="select" id="fbrand" style="width:auto;min-width:150px"><option value="">همه برندها</option></select>
         <select class="select" id="fsite" style="width:auto;min-width:140px"><option value="">همه رقبا</option>
           ${P.meta.sites.map((s) => html`<option value="${s.key}" ${f.site === s.key ? "selected" : ""}>${s.name}</option>`)}</select>

@@ -290,8 +290,8 @@ function dragToDismiss(sheetEl, scrim, close) {
   const onDown = (e) => {
     if (drag || !isPhone() || reducedMotion() || e.button > 0 || e.target.closest("button, a, input, select, textarea")) return;
     drag = { id: e.pointerId, y0: e.clientY, dy: 0, h: sheetEl.offsetHeight, samples: [{ t: e.timeStamp, y: e.clientY }] };
-    e.currentTarget.setPointerCapture(e.pointerId);
     sheetEl.classList.add("dragging");
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
   };
   const onMove = (e) => {
     if (!drag || e.pointerId !== drag.id) return;
@@ -323,7 +323,7 @@ function dragToDismiss(sheetEl, scrim, close) {
   });
 }
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && openSheets.length && !document.querySelector(".pop")) openSheets[openSheets.length - 1].close();
+  if (e.key === "Escape" && openSheets.length && !document.querySelector(".pop:not([data-state=exit])")) openSheets[openSheets.length - 1].close();
 });
 export function closeAllSheets() { [...openSheets].forEach((s) => s.close()); }
 
@@ -350,6 +350,7 @@ export function popover(anchor, content, onMount) {
   document.querySelectorAll(".pop").forEach((p) => p.remove());
   const pop = document.createElement("div");
   pop.className = "pop";
+  pop.dataset.state = "enter";
   pop.innerHTML = content;
   document.body.appendChild(pop);
   const r = anchor.getBoundingClientRect();
@@ -358,11 +359,25 @@ export function popover(anchor, content, onMount) {
   if (left < 8) left = 8;
   if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8;
   let top = r.bottom + 8;
-  if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 8);
+  const above = top + h > window.innerHeight - 8;
+  if (above) top = Math.max(8, r.top - h - 8);
   pop.style.left = `${left + window.scrollX}px`;
   pop.style.top = `${top + window.scrollY}px`;
   pop.style.position = "absolute";
-  const close = () => { pop.remove(); document.removeEventListener("mousedown", outside, true); document.removeEventListener("keydown", esc_, true); };
+  // grow out of the control that opened it: horizontally at the anchor's middle, vertically at the edge facing it
+  const ox = Math.min(w, Math.max(0, r.left + r.width / 2 - left));
+  pop.style.setProperty("--pop-origin", `${ox}px ${above ? "100%" : "0"}`);
+  pop.getBoundingClientRect();
+  delete pop.dataset.state;
+  let closing = false;
+  const close = () => {
+    if (closing) return;
+    closing = true;
+    document.removeEventListener("mousedown", outside, true);
+    document.removeEventListener("keydown", esc_, true);
+    pop.dataset.state = "exit";
+    afterTransition(pop, 120, () => pop.remove());
+  };
   const outside = (e) => { if (!pop.contains(e.target) && e.target !== anchor && !anchor.contains(e.target)) close(); };
   const esc_ = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
   setTimeout(() => { document.addEventListener("mousedown", outside, true); document.addEventListener("keydown", esc_, true); });

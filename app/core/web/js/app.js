@@ -93,9 +93,9 @@ function showLogin() {
         <p class="muted small" style="text-align:center;margin-bottom:22px">فروشگاه و حسابداری، قیمت رقبا، استودیو محتوا</p>
         <div class="stack s12">
           <div class="field"><label for="u">نام کاربری</label>
-            <input class="input ltr" id="u" name="username" autocomplete="username" required autofocus></div>
+            <input class="input ltr" id="u" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" required autofocus></div>
           <div class="field"><label for="p">رمز عبور</label>
-            <input class="input ltr" id="p" name="password" type="password" autocomplete="current-password" required></div>
+            <input class="input ltr" id="p" name="password" type="password" autocomplete="current-password" enterkeyhint="go" required></div>
           <button class="btn primary lg block mt8" type="submit">${icon("log-in")} ورود</button>
           <p class="small muted" id="login-err" role="alert" style="text-align:center;min-height:22px"></p>
         </div>
@@ -142,10 +142,13 @@ function renderShell() {
         <div class="panel-foot">${me.app.name} · <span class="ltr">${(window.AIKO_VERSION || "").slice(0, 7)}</span></div>
       </aside>
       <main class="main">
+        <button class="mini-bar" id="mini-bar" type="button" aria-label="رفتن به بالای صفحه"><span id="mini-title"></span></button>
         <header class="topbar">
           <a class="brand-mark mobile-brand" href="#/" aria-label="خانه"><img src="/static/img/logo.png" alt=""></a>
           <div class="title"><h1 id="page-title"></h1><p id="page-sub"></p></div>
           <div class="spacer"></div>
+          <button class="btn sm ghost search-trigger desk-only" id="search-btn" type="button">
+            <span class="row nowrap" style="gap:8px">${icon("search", "sm")} رفتن به…</span><kbd class="kbd">${navigator.platform?.includes("Mac") ? "⌘K" : "Ctrl K"}</kbd></button>
           <span class="live-dot off" id="live-dot" title="اتصال زنده"></span>
           <button class="btn icon has-dot" id="bell-btn" aria-label="اعلان‌ها">${icon("bell")}<span class="badge-dot hidden" id="bell-count"></span></button>
           <span id="top-action"></span>
@@ -158,8 +161,114 @@ function renderShell() {
   $("#bell-btn").onclick = openNotifications;
   $("#logout-btn").onclick = logout;
   $("#theme-btn").onclick = toggleTheme;
+  $("#search-btn").onclick = openPalette;
   delegate($("#bottom-nav"), "click", "[data-menu]", (e) => { e.preventDefault(); openMenu(); });
+  bindTooltips($(".rail"));
+  // phones: once the big title scrolls away, a compact bar keeps "where am I" visible; tapping it goes back to top
+  const mini = $("#mini-bar");
+  new IntersectionObserver(([e]) => mini.classList.toggle("show", !e.isIntersecting && window.scrollY > 0)).observe($(".topbar"));
+  mini.onclick = () => window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
 }
+
+// ---------------------------------------------------------------- tooltips
+// One fixed tooltip for [data-tip] elements (mouse only). The first waits a beat so passing over the rail doesn't
+// flash labels; while one is showing, moving to a neighbour shows it instantly with no animation.
+function bindTooltips(root) {
+  const tip = Object.assign(document.createElement("div"), { className: "tip", role: "tooltip" });
+  tip.dataset.state = "hidden";
+  document.body.appendChild(tip);
+  let timer = null, warmUntil = 0;
+  const show = (el) => {
+    tip.textContent = el.dataset.tip;
+    const r = el.getBoundingClientRect();
+    tip.style.top = `${r.top + r.height / 2 - tip.offsetHeight / 2}px`;
+    tip.style.left = `${r.left - tip.offsetWidth - 12}px`;
+    delete tip.dataset.state;
+  };
+  root.addEventListener("pointerover", (e) => {
+    const el = e.target.closest("[data-tip]");
+    if (!el || e.pointerType !== "mouse") return;
+    clearTimeout(timer);
+    const warm = Date.now() < warmUntil || !tip.dataset.state;
+    tip.toggleAttribute("data-instant", warm);
+    if (warm) show(el);
+    else timer = setTimeout(() => show(el), 450);
+  });
+  root.addEventListener("pointerout", (e) => {
+    const el = e.target.closest("[data-tip]");
+    if (!el || el.contains(e.relatedTarget)) return;
+    clearTimeout(timer);
+    if (!tip.dataset.state) warmUntil = Date.now() + 300;
+    tip.dataset.state = "hidden";
+  });
+  root.addEventListener("click", () => { clearTimeout(timer); tip.dataset.state = "hidden"; });
+}
+
+// ---------------------------------------------------------------- command palette (Ctrl/⌘ K)
+// Jump to any page of any module you can open. Keyboard-first and used often, so it opens and closes instantly.
+const normFa = (s) => String(s || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/‌/g, " ").toLowerCase();
+function paletteItems() {
+  const items = [];
+  const add = (mod, group, it) => items.push({ label: it.label, group, ico: it.ico, href: hrefFor(mod, it.href) });
+  homeNav().filter((i) => !i.section).forEach((it) => add("", "عمومی", it));
+  ordered().filter((m) => m.def).forEach((m) => {
+    m.def.nav(roleOf(m.info.id)).filter((i) => !i.section).forEach((it) => add(m.info.id, m.info.name, it));
+    (m.def.quick ? m.def.quick(roleOf(m.info.id)) : []).forEach((q) =>
+      items.push({ label: q.label, group: "میانبر", ico: q.ico, href: q.href, sub: q.sub }));
+  });
+  return items;
+}
+function openPalette() {
+  if (document.querySelector(".palette-scrim")) return;
+  const all = paletteItems();
+  const opener = document.activeElement;
+  const wrap = document.createElement("div");
+  wrap.className = "palette-scrim";
+  wrap.innerHTML = String(html`<div class="palette" role="dialog" aria-modal="true" aria-label="رفتن به صفحه">
+    <div class="input-wrap">${icon("search")}<input class="input" id="pal-q" placeholder="نام صفحه یا کار…" autocomplete="off"
+      enterkeyhint="go" role="combobox" aria-controls="pal-list" aria-expanded="true"></div>
+    <div class="palette-list" id="pal-list" role="listbox"></div>
+    <div class="palette-foot"><span><kbd class="kbd">↑↓</kbd> انتخاب</span><span><kbd class="kbd">Enter</kbd> رفتن</span><span><kbd class="kbd">Esc</kbd> بستن</span></div>
+  </div>`);
+  document.body.appendChild(wrap);
+  const input = $("#pal-q", wrap), list = $("#pal-list", wrap);
+  let shown = all, active = 0;
+  const draw = () => {
+    const terms = normFa(input.value).split(/\s+/).filter(Boolean);
+    shown = all.filter((it) => terms.every((t) => normFa(`${it.label} ${it.group} ${it.sub || ""}`).includes(t)));
+    active = Math.min(active, Math.max(0, shown.length - 1));
+    list.innerHTML = shown.length ? String(html`${shown.map((it, i) => html`<button type="button" class="palette-item" role="option"
+        aria-selected="${i === active}" data-i="${i}">${icon(it.ico || "chevron-left")}<span class="grow ellipsis">${it.label}</span>
+        <span class="role-pill">${it.group}</span></button>`)}`)
+      : `<div class="palette-empty">صفحه‌ای با این نام نیست</div>`;
+  };
+  const select = (i) => {
+    active = i;
+    list.querySelectorAll(".palette-item").forEach((b) => b.setAttribute("aria-selected", String(Number(b.dataset.i) === i)));
+    list.querySelector(`[data-i="${i}"]`)?.scrollIntoView({ block: "nearest" });
+  };
+  const close = () => { wrap.remove(); if (opener && opener.isConnected) opener.focus({ preventScroll: true }); };
+  const go = (i) => { const it = shown[i]; if (!it) return; close(); location.hash = it.href.replace(/^#?/, "#"); };
+  input.addEventListener("input", () => { active = 0; draw(); });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); select(Math.min(shown.length - 1, active + 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); select(Math.max(0, active - 1)); }
+    else if (e.key === "Enter") { e.preventDefault(); go(active); }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+  });
+  list.addEventListener("mousemove", (e) => { const b = e.target.closest("[data-i]"); if (b && Number(b.dataset.i) !== active) select(Number(b.dataset.i)); });
+  list.addEventListener("click", (e) => { const b = e.target.closest("[data-i]"); if (b) go(Number(b.dataset.i)); });
+  wrap.addEventListener("mousedown", (e) => { if (e.target === wrap) close(); });
+  draw();
+  input.focus();
+}
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "k" || e.key === "K" || e.code === "KeyK") && state.me && $("#view")) {
+    e.preventDefault();
+    const open = document.querySelector(".palette-scrim");
+    if (open) open.remove(); else openPalette();
+  }
+});
 
 async function logout() {
   await api("/api/logout", { method: "POST" });
@@ -173,9 +282,15 @@ async function logout() {
 function toggleTheme() {
   const root = document.documentElement;
   const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-  root.dataset.theme = dark ? "light" : "dark";
-  try { localStorage.setItem("aiko-theme", root.dataset.theme); } catch (e) {}
-  emit("theme");
+  const apply = () => {
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("aiko-theme", root.dataset.theme); } catch (e) {}
+    window.aikoSyncThemeColor?.();
+    emit("theme");
+  };
+  // a short crossfade instead of a sudden brightness jump (where the browser supports view transitions)
+  if (document.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) document.startViewTransition(apply);
+  else apply();
 }
 
 function navFor(mod) {
@@ -240,6 +355,7 @@ function openMenu() {
 function setTitle(title, sub = "") {
   $("#page-title").textContent = title;
   $("#page-sub").textContent = sub;
+  $("#mini-title").textContent = title;
   document.title = `${title} — ${state.me?.app?.name || "آیکو"}`;
 }
 

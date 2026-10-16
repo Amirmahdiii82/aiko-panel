@@ -212,8 +212,15 @@ export function barList(items, { label, value, fmt = (v) => compact(v), sub, col
     <div class="bar-track"><div class="bar-fill ${colors ? "c" + ((idx % 5) + 1) : ""}" style="width:${Math.max(2, (Math.abs(value(it)) / max) * 100)}%"></div></div>
   </div>`)}</div>`;
 }
+const segmenter = typeof Intl.Segmenter === "function" ? new Intl.Segmenter("fa", { granularity: "grapheme" }) : null;
+/** First visible character (a whole emoji or accented letter, never half of one). */
+function initial(name) {
+  const s = String(name || "").trim() || "?";
+  if (segmenter) return segmenter.segment(s)[Symbol.iterator]().next().value.segment.toUpperCase();
+  return Array.from(s)[0].toUpperCase();
+}
 export function avatar(name, cls = "") {
-  return html`<span class="avatar ${cls}">${(name || "?").trim().slice(0, 1)}</span>`;
+  return html`<span class="avatar ${cls}">${initial(name)}</span>`;
 }
 export function copyText(text) {
   navigator.clipboard?.writeText(text).then(() => toast("کپی شد"), () => toast("کپی نشد", "error"));
