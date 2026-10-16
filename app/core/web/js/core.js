@@ -169,30 +169,81 @@ export function numWords(n) {
 }
 
 // ---------------------------------------------------------------- overlays
+export const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** Wait for an element's CSS transition to finish (with a timer fallback: transitionend never fires when nothing moves). */
+function afterTransition(el, ms, fn) {
+  let done = false;
+  const finish = () => { if (!done) { done = true; fn(); } };
+  el.addEventListener("transitionend", (e) => { if (e.target === el) finish(); });
+  setTimeout(finish, ms + 60);
+}
+
+/** Older toasts glide to their new place when one is added or removed (FLIP), instead of jumping. */
+function flipToasts(box, mutate) {
+  const items = [...box.children];
+  const before = new Map(items.map((t) => [t, t.getBoundingClientRect().top]));
+  mutate();
+  if (reducedMotion()) return;
+  items.forEach((t) => {
+    if (!t.isConnected || t.dataset.state === "exit") return;
+    const dy = before.get(t) - t.getBoundingClientRect().top;
+    if (Math.abs(dy) > 0.5) t.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 400, easing: "ease" });
+  });
+}
+
+const MAX_TOASTS = 3;
 export function toast(message, type = "success", { action, timeout = 4200 } = {}) {
   const box = document.getElementById("toasts");
   const el = document.createElement("div");
   el.className = `toast ${type}`;
+  el.setAttribute("role", type === "error" ? "alert" : "status");
+  el.dataset.state = "enter";
   const ico = type === "error" ? "circle-alert" : type === "info" ? "info" : "circle-check";
   el.innerHTML = `<span class="t-ico">${icon(ico)}</span><span class="t-msg">${esc(message)}</span>`;
+
+  // the timer pauses while the pointer rests on the toast or the tab is in the background
+  let remaining = timeout, started = 0, timer = null;
+  const start = () => { if (timer || el.dataset.state === "exit") return; started = Date.now(); timer = setTimeout(dismiss, remaining); };
+  const pause = () => { if (!timer) return; clearTimeout(timer); timer = null; remaining -= Date.now() - started; };
+  const onVisibility = () => (document.hidden ? pause() : start());
+  function dismiss() {
+    if (el.dataset.state === "exit") return;
+    clearTimeout(timer);
+    document.removeEventListener("visibilitychange", onVisibility);
+    el.dataset.state = "exit";
+    afterTransition(el, 220, () => flipToasts(box, () => el.remove()));
+  }
+
   if (action) {
     const b = document.createElement("button");
     b.className = "btn sm soft";
     b.textContent = action.label;
-    b.onclick = () => { action.fn(); el.remove(); };
+    b.onclick = (e) => { e.stopPropagation(); action.fn(); dismiss(); };
     el.appendChild(b);
   }
-  box.appendChild(el);
-  setTimeout(() => el.remove(), timeout);
+  el.addEventListener("click", dismiss);                 // tap a toast to put it away
+  el.addEventListener("pointerenter", (e) => { if (e.pointerType === "mouse") pause(); });
+  el.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") start(); });
+  document.addEventListener("visibilitychange", onVisibility);
+
+  const live = [...box.children].filter((t) => t.dataset.state !== "exit");
+  live.slice(0, Math.max(0, live.length - MAX_TOASTS + 1)).forEach((t) => t.click());
+  flipToasts(box, () => box.appendChild(el));
+  el.getBoundingClientRect();                              // commit the "enter" style so the change below transitions
+  delete el.dataset.state;
+  if (!document.hidden) start();
 }
 
 const openSheets = [];
+const isPhone = () => window.matchMedia("(max-width: 900px)").matches;
 /** Open a dialog. body may be html`` or a string. Returns { root, close }. */
 export function sheet({ title = "", body = "", foot = "", size = "", side = false, onClose, focus = true } = {}) {
+  const opener = document.activeElement;
   const scrim = document.createElement("div");
   scrim.className = "scrim" + (side ? " side-mode" : "");
-  scrim.innerHTML = `
+  scrim.innerHTML = `<div class="scrim-bg"></div>
     <div class="sheet ${size} ${side ? "side" : ""}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+      <div class="sheet-grip" aria-hidden="true"></div>
       <div class="sheet-head"><h2>${esc(title)}</h2>
         <button class="btn icon sm ghost" data-close aria-label="بستن">${icon("x")}</button></div>
       <div class="sheet-body">${body}</div>
@@ -200,28 +251,76 @@ export function sheet({ title = "", body = "", foot = "", size = "", side = fals
     </div>`;
   document.body.appendChild(scrim);
   document.body.style.overflow = "hidden";
-  requestAnimationFrame(() => scrim.classList.add("show"));
   const root = scrim.querySelector(".sheet");
+  root.getBoundingClientRect();                            // commit the closed position, then open (no rAF race)
+  scrim.classList.add("show");
   let closed = false;
   const close = () => {
     if (closed) return;
     closed = true;
+    scrim.classList.add("closing");
     scrim.classList.remove("show");
+    root.style.transform = "";                             // let a dragged sheet continue from where the finger left it
+    root.classList.remove("dragging");
     const i = openSheets.indexOf(api_);
     if (i >= 0) openSheets.splice(i, 1);
     if (!openSheets.length) document.body.style.overflow = "";
-    setTimeout(() => scrim.remove(), 200);
+    afterTransition(root, isPhone() ? 260 : 160, () => scrim.remove());
+    if (opener && opener.isConnected && opener !== document.body && !openSheets.length) opener.focus({ preventScroll: true });
     onClose && onClose();
   };
   const api_ = { root, close, scrim };
   openSheets.push(api_);
-  scrim.addEventListener("mousedown", (e) => { if (e.target === scrim) close(); });
+  scrim.addEventListener("mousedown", (e) => { if (e.target === scrim || e.target.classList.contains("scrim-bg")) close(); });
   root.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", close));
+  dragToDismiss(root, scrim, close);
   if (focus) setTimeout(() => {
     const first = root.querySelector("[autofocus], .sheet-body input:not([type=hidden]):not([type=checkbox]), .sheet-body select");
-    if (first && window.matchMedia("(min-width: 901px)").matches) first.focus();
+    if (first && !isPhone()) first.focus();
   }, 120);
   return api_;
+}
+
+/** Phones: pull a bottom sheet down by its grip or title bar. It follows the finger 1:1, resists being pulled up,
+ *  and closes on a long enough pull or a quick flick (velocity), otherwise springs back. */
+function dragToDismiss(sheetEl, scrim, close) {
+  const handles = [sheetEl.querySelector(".sheet-grip"), sheetEl.querySelector(".sheet-head")];
+  const bg = scrim.querySelector(".scrim-bg");
+  let drag = null;
+  const onDown = (e) => {
+    if (drag || !isPhone() || reducedMotion() || e.button > 0 || e.target.closest("button, a, input, select, textarea")) return;
+    drag = { id: e.pointerId, y0: e.clientY, dy: 0, h: sheetEl.offsetHeight, samples: [{ t: e.timeStamp, y: e.clientY }] };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    sheetEl.classList.add("dragging");
+  };
+  const onMove = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const raw = e.clientY - drag.y0;
+    // pulling up past the resting point gets heavier the further it goes (rubber band), instead of a hard wall
+    drag.dy = raw >= 0 ? raw : -(Math.abs(raw) * 60) / (60 + Math.abs(raw));
+    sheetEl.style.transform = `translateY(${drag.dy}px)`;
+    bg.style.opacity = String(1 - Math.max(0, drag.dy) / drag.h);
+    drag.samples.push({ t: e.timeStamp, y: e.clientY });
+    if (drag.samples.length > 5) drag.samples.shift();
+  };
+  const onUp = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const s = drag.samples, first = s[0], last = s[s.length - 1];
+    const velocity = (last.y - first.y) / Math.max(1, last.t - first.t);   // px per ms, + is downward
+    const dismiss = drag.dy > drag.h * 0.3 || (velocity > 0.11 && drag.dy > 10);
+    drag = null;
+    sheetEl.classList.remove("dragging");
+    bg.style.opacity = "";
+    if (dismiss) close();
+    else sheetEl.style.transform = "";                     // the transition carries it back from wherever it is
+  };
+  handles.forEach((h) => {
+    if (!h) return;
+    h.addEventListener("pointerdown", onDown);
+    h.addEventListener("pointermove", onMove);
+    h.addEventListener("pointerup", onUp);
+    h.addEventListener("pointercancel", onUp);
+  });
 }
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && openSheets.length && !document.querySelector(".pop")) openSheets[openSheets.length - 1].close();
