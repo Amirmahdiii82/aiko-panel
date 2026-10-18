@@ -90,3 +90,58 @@ def test_made_admin_of_a_channel_becomes_the_backup_channel(owner, monkeypatch):
     _run(FakeApi(), upd)
     assert backup.telegram_settings()["chat_id"] == "-100999"
     assert db.core.get_setting("bot_seen_chats")[0]["id"] == "-100999"
+
+
+def _cb(data, chat_id=OWNER):
+    return {"update_id": 3, "callback_query": {"id": "q", "data": data, "message": {"chat": {"id": chat_id, "type": "private"}}}}
+
+
+def _owner_id():
+    with db.core.read() as con:
+        return con.execute("SELECT id FROM users WHERE username = 'amir'").fetchone()[0]
+
+
+def test_record_a_sale_from_the_bot(owner):
+    _setup(owner)
+    pid = owner.post("/api/erp/products", json={"name": "ریمل اسنس", "price": 550_000, "stock": 5}, headers=H).json()["id"]
+    api = FakeApi()
+    _run(api, _msg("🛍 ثبت فروش"))
+    assert "کدام کاربر" in api.sent[-1][1]                       # asked once who this chat is
+    _run(api, _cb(f"who:{_owner_id()}"))
+    _run(api, _msg("ریمل"))                                       # one match: goes straight to quantity
+    assert "چند عدد" in api.sent[-1][1]
+    _run(api, _cb("q:2"))
+    _run(api, _msg("۵۰۰ هزار"))                                   # a different price, typed the way people type it
+    _run(api, _cb("next"))
+    _run(api, _cb("ch:instagram"))
+    _run(api, _msg("مریم"))
+    assert "بررسی" in api.sent[-1][1] and "۱٬۰۰۰٬۰۰۰" in api.sent[-1][1]
+    _run(api, _cb("save"))
+    assert "ثبت شد" in api.sent[-1][1] and "مانده ۳" in api.sent[-1][1]
+    from app.modules.erp import db as erp_db
+    with erp_db.read() as con:
+        sale = erp_db.one(con.execute("SELECT * FROM sales ORDER BY id DESC LIMIT 1"))
+        assert con.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == 3
+    assert sale["total"] == 1_000_000 and sale["channel"] == "instagram" and sale["customer_name"] == "مریم"
+    assert sale["created_by"] == _owner_id()
+
+
+def test_record_an_expense_and_cancel_a_flow(owner):
+    _setup(owner)
+    from app.core import bot as b
+    db.core.set_setting(b.USERS_KEY, {str(OWNER): _owner_id()})
+    api = FakeApi()
+    _run(api, _msg("🛍 ثبت فروش"))
+    _run(api, _cb("x"))
+    assert "لغو" in api.sent[-1][1] and b._state(OWNER) is None
+    _run(api, _msg("💸 ثبت هزینه"))
+    _run(api, _msg("250 هزار"))
+    _run(api, _cb("c:0"))
+    _run(api, _cb("skip"))
+    acc = api.sent[-1][2]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
+    _run(api, _cb(acc))
+    _run(api, _cb("save"))
+    assert "هزینه" in api.sent[-1][1] and "ثبت شد" in api.sent[-1][1]
+    from app.modules.erp import db as erp_db
+    with erp_db.read() as con:
+        assert con.execute("SELECT amount FROM expenses ORDER BY id DESC LIMIT 1").fetchone()[0] == 250_000

@@ -10,7 +10,8 @@ The core mounts what a module declares and nothing else:
   notify      → bot notification kinds the owner can toggle (kind → label)
   summary     → small dict for the unified home page, computed for one user
   event_filter→ which live events a user of this module may receive
-  bot         → buttons for the owners' Telegram/Bale bot: {command: (button label, fn() -> message text)}
+  bot         → buttons for the owners' Telegram/Bale bot: {command: (button label, fn() -> message text)} for a
+                report, or {command: flow} for a step-by-step flow (see app/core/botkit.py)
   exception_handlers → domain errors turned into JSON {"detail": message} with a status code
 
 Modules never import each other's internals. If one needs another's data it calls that
@@ -45,7 +46,7 @@ class Module:
     summary: Callable[[dict], Any] | None = None
     event_filter: Callable[[dict, dict], bool] | None = None
     cli: dict[str, Callable[[list[str]], None]] = field(default_factory=dict)
-    bot: dict[str, tuple[str, Callable[[], str]]] = field(default_factory=dict)  # command → (button label, report text)
+    bot: dict[str, Any] = field(default_factory=dict)  # command → (button label, report fn) or a flow object
     exception_handlers: dict[type, int] = field(default_factory=dict)  # exception class → HTTP status (message shown as-is)
 
     @property
