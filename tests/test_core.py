@@ -159,3 +159,9 @@ def test_uploads_require_login_and_stay_inside_the_folder(owner):
 def test_unknown_api_paths_are_json_404(owner):
     r = owner.get("/api/does-not-exist")
     assert r.status_code == 404 and "detail" in r.json()
+
+
+def test_scripts_are_revalidated_so_a_deploy_is_never_hidden_by_the_browser_cache(client):
+    assert client.get("/static/js/widgets.js").headers["cache-control"] == "no-cache"
+    assert client.get("/m/erp/index.js").headers["cache-control"] == "no-cache"
+    assert "max-age" in client.get("/static/js/app.js?v=abc").headers["cache-control"]

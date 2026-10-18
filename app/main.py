@@ -94,6 +94,15 @@ def create_app() -> FastAPI:
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), payment=()")
         response.headers.setdefault("Content-Security-Policy", CSP)
+        path = request.url.path
+        if path.startswith(("/static/", "/m/")):
+            # Scripts import each other without a version in the URL (kit.js → widgets.js), so the browser must
+            # re-check them on every load (an unchanged file is a tiny 304) — otherwise it keeps an old copy for hours
+            # after a deploy. Versioned URLs (?v=…) and fonts/images may stay cached.
+            if request.url.query.startswith("v=") or path.startswith(("/static/fonts/", "/static/img/")):
+                response.headers.setdefault("Cache-Control", "public, max-age=604800")
+            else:
+                response.headers.setdefault("Cache-Control", "no-cache")
         return response
 
     def domain_error(status: int):

@@ -16,8 +16,9 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/uploads/")) return;
-  // network first, fall back to cache when offline
-  e.respondWith(fetch(e.request).then((res) => {
+  // network first (always re-checked with the server, never a stale browser copy), fall back to cache when offline
+  const req = e.request.mode === "navigate" ? e.request : new Request(e.request, { cache: "no-cache" });
+  e.respondWith(fetch(req).then((res) => {
     if (res.ok && (url.pathname.startsWith("/static/") || url.pathname.startsWith("/m/") || url.pathname === "/")) {
       const copy = res.clone();
       caches.open(CACHE).then((c) => c.put(e.request, copy));
