@@ -182,8 +182,9 @@ const FORMS = {
       ${!t.proxy ? html`<div class="callout warn">${icon("triangle-alert")}<div>اول «پروکسی خروجی» را تنظیم کنید؛ بدون آن تلگرام از سرور در دسترس نیست.</div></div>` : ""}
       <div class="steps">
         <div class="step"><div class="s-body small">در تلگرام یک کانال <b>خصوصی</b> بسازید.</div></div>
-        <div class="step"><div class="s-body small">ربات را در کانال <b>مدیر</b> کنید (اجازه ارسال پیام) و یک پیام در کانال بفرستید.</div></div>
-        <div class="step"><div class="s-body small">«پیدا کن» را بزنید، کانال را انتخاب کنید و «ذخیره و ارسال آزمایشی».</div></div>
+        <div class="step"><div class="s-body small">ربات اعلان‌ها را در کانال <b>مدیر</b> کنید (اجازه Post Messages).</div></div>
+        <div class="step"><div class="s-body small">یک پیام از همان کانال را برای ربات <b>فوروارد</b> کنید. ربات خودش کانال را تنظیم می‌کند
+          و اولین پشتیبان را می‌فرستد؛ لازم نیست شناسه کانال را بدانید. (یا «پیدا کن» را بزنید.)</div></div>
       </div>
       <div class="field"><label>ربات</label><input class="input ltr" name="token"
         placeholder="${t.token_set ? "ربات جدا ذخیره شده (برای تغییر، توکن جدید)" : t.uses_notify_token ? "خالی = همان ربات اعلان‌ها (پیشنهادی)" : "توکن ربات تلگرام: 123456789:ABC…"}"></div>

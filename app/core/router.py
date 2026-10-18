@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from . import activity, auth, backup, config, db, events, integrations, jobs
+from . import activity, auth, backup, bot, config, db, events, integrations, jobs
 from .modules import loaded as modules
 
 log = logging.getLogger("aiko.core")
@@ -339,7 +339,9 @@ async def notify_test(user=Admin):
 
 @router.get("/api/notify/chats")
 async def notify_chats(user=Admin):
-    return await activity.bot_updates(activity.notify_settings())
+    s = activity.notify_settings()
+    seen = bot.chats_for((s.get("token") or "").strip(), s.get("bot") or "bale")
+    return [c for c in seen if c["type"] == "private"] if seen is not None else await activity.bot_updates(s)
 
 
 # ---------------------------------------------------------------- setup status (home page checklist)
@@ -445,6 +447,9 @@ async def backup_telegram_chats(user=Admin):
     token = backup.telegram_token()
     if not token:
         raise HTTPException(400, "اول توکن ربات تلگرام را ذخیره کنید")
+    seen = bot.chats_for(token, "telegram")
+    if seen is not None:
+        return [c for c in seen if c["type"] in ("channel", "supergroup", "group")]
     try:
         return await activity.bot_updates({"bot": "telegram", "token": token})
     except Exception as exc:

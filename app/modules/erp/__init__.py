@@ -6,7 +6,7 @@ from pathlib import Path
 from ...core import db as core_db
 from ...core import events, jobs
 from ...core.modules import Module
-from . import db, ledger, notify, reports, sitesync, woo
+from . import botreports, db, ledger, notify, reports, sitesync, woo
 from .router import ledger_profile, router
 
 DEFAULT_COLORS = ["#5B4B87", "#D27C6D", "#4D6F54", "#8D6324"]
@@ -122,5 +122,6 @@ module = Module(
     summary=summary,
     event_filter=notify.visible_to,
     cli={"import-excel": _cli_import_excel},
+    bot=botreports.COMMANDS,
     exception_handlers={ledger.LedgerError: 400, woo.WooError: 502},
 )

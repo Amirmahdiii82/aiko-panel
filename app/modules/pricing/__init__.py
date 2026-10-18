@@ -51,6 +51,27 @@ def summary(user: dict) -> dict:
     }
 
 
+def bot_prices() -> str:
+    """Competitor prices in one message for the owners' bot."""
+    s = summary({})
+    if not s["products"]:
+        return "🏷 هنوز قیمتی خوانده نشده."
+    fa = lambda v: str(v).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+    lines = [f"🏷 قیمت رقبا ({fa(s['compared'])} از {fa(s['products'])} محصول مقایسه شده)",
+             f"شاخص قیمت ما: {fa(s['median_index']) if s['median_index'] is not None else '—'} (۱۰۰ = میانه بازار)",
+             f"خیلی گران‌تر از بازار: {fa(s['far_above'])} محصول",
+             f"ارزان‌ترین بازار: {fa(s['cheapest'])} محصول",
+             f"فرصت افزایش قیمت: {fa(s['raise_count'])} محصول",
+             f"منتظر تأیید تطبیق: {fa(s['pending_reviews'])}"]
+    if s["risk"]:
+        lines.append("\n🔻 بیشترین فاصله با ارزان‌ترین رقیب:")
+        lines += [f"• {r['name']} — {fa(round(r['gap'] or 0))}٪ گران‌تر" for r in s["risk"]]
+    last = s["last_crawl"]
+    if last:
+        lines.append(f"\nآخرین بروزرسانی: {(last.get('finished_at') or last.get('started_at') or '')[:16].replace('T', ' ')}")
+    return "\n".join(lines)
+
+
 def _cli_crawl(args: list[str]) -> None:
     crawl_id = asyncio.run(crawler.run_crawl("cli", only_sites=args or None))
     print(f"crawl {crawl_id} finished")
@@ -71,4 +92,5 @@ module = Module(
     notify={"crawl_done": "پایان بروزرسانی قیمت رقبا (با خلاصه)", "crawl_failed": "خطای بروزرسانی قیمت رقبا"},
     summary=summary,
     cli={"crawl": _cli_crawl},
+    bot={"prices": ("🏷 قیمت رقبا", bot_prices)},
 )
