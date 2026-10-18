@@ -242,6 +242,9 @@ export const KIND_ICON = {
   sync_warning: "triangle-alert", import: "file-spreadsheet", woo: "globe", woo_link: "link", product: "package-plus",
   split: "split", user: "user-plus", woo_import: "cloud-upload",
   crawl_done: "chart-line", crawl_failed: "cloud-off", video_done: "clapperboard", video_failed: "circle-alert",
-  backup: "database",
+  backup: "database", integrations: "plug", full_sync: "refresh-cw", merge: "merge", purchase_void: "undo-2",
+  partners: "users",
 };
+// fallback by severity for kinds without their own icon (a kind added later must never break the feed)
+export const LEVEL_ICON = { success: "circle-check", warning: "triangle-alert", danger: "circle-alert", info: "info" };
 export { esc };
