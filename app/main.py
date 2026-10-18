@@ -18,6 +18,9 @@ from .core.router import router as core_router
 
 logging.basicConfig(level=config.LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("aiko")
+# httpx logs every request URL at INFO; bot API URLs contain the bot token, which must never reach the logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 WEB = Path(__file__).resolve().parent / "core" / "web"
 # No inline scripts anywhere; styles may be inline (style="" attributes). Remote https images are product
 # photos (the shop, competitors); camera uploads go through our own /api/uploads.
