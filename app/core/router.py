@@ -342,6 +342,24 @@ async def notify_chats(user=Admin):
     return await activity.bot_updates(activity.notify_settings())
 
 
+# ---------------------------------------------------------------- setup status (home page checklist)
+@router.get("/api/setup")
+def setup_status(user=Admin):
+    """Everything shared by the whole app in one look: what is set up, what is missing, last backup."""
+    n = activity.notify_settings()
+    t = _telegram_view()
+    key = integrations.openrouter_key()
+    w = integrations.woo_public()
+    return {
+        "woo": {"ok": w["configured"], "url": w["url"], "currency": w["currency"]},
+        "proxy": {"ok": bool(integrations.proxy_url()), "url": integrations.proxy_url()},
+        "bot": {"ok": bool(n.get("token") and n.get("chat_ids")), "bot": n.get("bot") or "bale",
+                "chat_ids": n.get("chat_ids") or ""},
+        "backup": {"ok": bool(t["enabled"] and t["chat_id"] and t["last_ok"] is not False), **t},
+        "openrouter": {"ok": bool(key), "key_hint": f"…{key[-4:]}" if key else ""},
+    }
+
+
 # ---------------------------------------------------------------- connections shared by every module
 def _integrations_view() -> dict:
     key = integrations.openrouter_key()

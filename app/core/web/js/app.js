@@ -21,16 +21,15 @@ const homeNav = () => [
   { href: "", label: "خانه", ico: "house" },
   { href: "activity", label: "رویدادها", ico: "history" },
   ...(isOwner() ? [{ section: "مدیریت" }, { href: "team", label: "تیم و دسترسی‌ها", ico: "users" },
-    { href: "settings", label: "تنظیمات و پشتیبان", ico: "settings" }] : []),
+    { href: "settings", label: "تنظیمات", ico: "settings" }] : []),
   { section: "شما" },
   { href: "profile", label: "حساب من", ico: "user-cog" },
 ];
-const homeMobile = () => [
-  { href: "", label: "خانه", ico: "house" },
-  { href: "activity", label: "رویدادها", ico: "history" },
-  ...(isOwner() ? [{ href: "team", label: "تیم", ico: "users" }] : []),
-  { href: "profile", label: "حساب من", ico: "user-cog" },
-];
+const homeMobile = () => isOwner()
+  ? [{ href: "", label: "خانه", ico: "house" }, { href: "activity", label: "رویدادها", ico: "history" },
+    { href: "settings", label: "تنظیمات", ico: "settings" }, { href: "team", label: "تیم", ico: "users" }]
+  : [{ href: "", label: "خانه", ico: "house" }, { href: "activity", label: "رویدادها", ico: "history" },
+    { href: "profile", label: "حساب من", ico: "user-cog" }];
 
 const modules = {};                 // id → { info, def }  (also state.registry, for core pages)
 let current = null;                 // { mod, page, qs, cleanup, onParams, token }
@@ -132,6 +131,7 @@ function renderShell() {
         <a class="rail-btn" data-mod="" href="#/" data-tip="خانه" aria-label="خانه">${icon("house")}</a>
         ${rail}
         <span class="spacer"></span>
+        ${isOwner() ? html`<a class="rail-btn" data-mod="settings" href="#/settings" data-tip="تنظیمات" aria-label="تنظیمات">${icon("settings")}</a>` : ""}
         <button class="rail-btn" id="theme-btn" data-tip="روشن / تیره" aria-label="تغییر تم">${icon("moon")}</button>
         <a class="rail-btn" href="#/profile" data-tip="${me.user.name}" aria-label="حساب من">${avatar(me.user.name, "sm")}</a>
         <button class="rail-btn" id="logout-btn" data-tip="خروج" aria-label="خروج">${icon("log-out")}</button>
@@ -306,7 +306,7 @@ function hrefFor(mod, page) {
 function showModule(mod) {
   if (shownModule === mod) return;
   shownModule = mod;
-  document.querySelectorAll(".rail-btn[data-mod]").forEach((a) => a.classList.toggle("on", a.dataset.mod === mod));
+  document.querySelectorAll(".rail-btn[data-mod]").forEach((a) => a.classList.toggle("on", a.dataset.mod === mod && a.dataset.mod !== "settings"));
   const m = mod ? modules[mod] : null;
   const role = mod ? roleOf(mod) : null;
   const roleLabel = m ? (m.info.roles[role] || role) : "";
@@ -381,6 +381,9 @@ async function route() {
     loader = CORE_PAGES[page];
   }
   showModule(mod);
+  // the gear in the rail is "where you are" on the settings page; the house button everywhere else in the home area
+  document.querySelector('.rail-btn[data-mod="settings"]')?.classList.toggle("on", !mod && page === "settings");
+  document.querySelector('.rail-btn[data-mod=""]')?.classList.toggle("on", !mod && page !== "settings");
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === page && !a.classList.contains("fab")));
 
   // same page, different sub-path (e.g. opening a detail): let the page handle it without re-rendering

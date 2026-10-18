@@ -95,7 +95,7 @@ function page(st, cat, tab) {
         <div><h1>${icon("globe")} ${configured ? "سایت وصل است" : "سایت هنوز وصل نشده"}</h1>
           <p class="muted small">${configured
             ? html`<span class="ltr">${s.url}</span> — سفارش‌های جدید فوری (وب‌هوک) و هر ${fa(s.pull_minutes || 3)} دقیقه خوانده می‌شوند${s.last_order_sync ? `، آخرین بررسی ${when(s.last_order_sync)}` : ""}`
-            : html`آدرس و کلید ووکامرس را ${isOwner() ? html`در <a href="#/settings/connections">تنظیمات ← اتصال‌ها</a>` : "از مدیر کل بخواهید"} وارد کنید (برای فروشگاه و قیمت رقبا با هم).`}</p></div>
+            : html`آدرس و کلید ووکامرس را ${isOwner() ? html`در <a href="#/settings/connections">تنظیمات ← سایت و اتصال‌ها</a>` : "از مدیر کل بخواهید"} وارد کنید (برای فروشگاه و قیمت رقبا با هم).`}</p></div>
         <label class="check bold"><span class="switch"><input type="checkbox" id="auto-push" ${s.auto_push ? "checked" : ""} ${configured ? "" : "disabled"}><span></span></span>
           همگام‌سازی خودکار موجودی</label>
       </div>

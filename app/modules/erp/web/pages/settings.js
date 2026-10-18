@@ -19,7 +19,7 @@ export async function render(view, params, { setTitle, base = "#/erp/settings" }
   const draw = async () => {
     view.innerHTML = String(html`<div class="stack">
       <div class="chips scroll">${TABS.map((t) => html`<a class="chip ${t.key === tab ? "on" : ""}" href="${base}/${t.key}">${icon(t.ico, "sm")}${t.label}</a>`)}
-        ${base === "#/erp/settings" && isOwner() ? html`<a class="chip" href="#/settings/connections">${icon("plug", "sm")}اتصال سایت و کلیدها</a>` : ""}</div>
+        ${base === "#/erp/settings" && isOwner() ? html`<a class="chip" href="#/settings">${icon("settings", "sm")}تنظیمات مشترک (سایت، پروکسی، ربات، پشتیبان)</a>` : ""}</div>
       <div id="tab"><div class="skeleton" style="height:300px"></div></div></div>`);
     const el = $("#tab", view);
     if (tab === "staff") await staffTab(el);

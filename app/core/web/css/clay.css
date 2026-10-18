@@ -804,6 +804,10 @@ table.t tfoot td { font-weight: 700; border-top: 1px solid var(--line-2); border
 .mod-card .m-ico.c2 { background: linear-gradient(135deg, #ADA4DC, #5B4B87); }
 .mod-card .m-ico.c3 { background: linear-gradient(135deg, #F6A496, #C87FAF); }
 .mod-card .m-ico.c4 { background: linear-gradient(135deg, #9CC4A3, #4D6F54); }
+/* setup checklist rows (home page, settings) */
+.m-ico.sm { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; flex: none;
+  background: var(--primary-soft); color: var(--primary-ink); }
+a.chip { text-decoration: none; }
 .mini-stat { background: var(--clay-2); border-radius: var(--r-md); box-shadow: var(--inset-shadow); padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .mini-stat > span { font-size: 12px; color: var(--muted); }
 /* amounts are never truncated: a narrow card wraps the unit ("۱۲٫۵ / میلیون") rather than hiding digits */

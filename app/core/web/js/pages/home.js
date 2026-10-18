@@ -1,5 +1,6 @@
 // Unified home: greeting, quick actions from every module, one summary card per module, recent activity.
-import { $, api, delegate, emptyState, esc, feedItem, html, icon, jdate, on, state } from "../kit.js";
+import { $, api, delegate, emptyState, esc, feedItem, html, icon, isOwner, jdate, on, state } from "../kit.js";
+import { setupCard } from "../setup.js";
 
 const COLORS = ["", "c2", "c3", "c4"];
 
@@ -22,6 +23,7 @@ export async function render(view, params, { setTitle }) {
         <span class="q-ico" style="background:linear-gradient(135deg,${q.color || "#ADA4DC"},#5B4B87)">${icon(q.ico)}</span>
         <span>${q.label}<small>${q.sub || ""}</small></span></button>`)}</div>` : ""}
     </section>
+    ${isOwner() ? html`<div id="setup"></div>` : ""}
     <div class="grid g2" id="mod-cards">
       ${mods.map((m, i) => html`<section class="card mod-card" data-mod-card="${m.info.id}">
         <div class="card-head"><span class="m-ico ${COLORS[i % COLORS.length]}">${icon(m.info.icon)}</span>
@@ -61,7 +63,8 @@ export async function render(view, params, { setTitle }) {
     if (feed) feed.innerHTML = items.length ? String(html`${items.map((a) => feedItem(a, { showModule: true }))}`)
       : String(emptyState("history", "هنوز رویدادی نیست"));
   };
-  await Promise.all([loadCards(), loadFeed()]);
+  const setupEl = $("#setup", view);
+  await Promise.all([loadCards(), loadFeed(), setupEl ? setupCard(setupEl, { compact: true }) : null]);
 
   let timer;
   const off = on("live", (ev) => {
