@@ -69,6 +69,7 @@ async def startup() -> None:
     db.seed_settings()
     tag_sources()
     woo.adopt_legacy_keys()
+    woo.ensure_webhook_secret()
     bootstrap()
     events.on("user.saved", on_user_saved)
     events.on("integrations.saved", lambda keys: woo.wake())

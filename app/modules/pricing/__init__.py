@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 
 from ...core import jobs
+from ...core.botkit import Report
+from ...core.text import fa
 from ...core.modules import Module
 from . import config, crawler, db, insights
 from .router import router
@@ -56,7 +58,6 @@ def bot_prices() -> str:
     s = summary({})
     if not s["products"]:
         return "🏷 هنوز قیمتی خوانده نشده."
-    fa = lambda v: str(v).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
     lines = [f"🏷 قیمت رقبا ({fa(s['compared'])} از {fa(s['products'])} محصول مقایسه شده)",
              f"شاخص قیمت ما: {fa(s['median_index']) if s['median_index'] is not None else '—'} (۱۰۰ = میانه بازار)",
              f"خیلی گران‌تر از بازار: {fa(s['far_above'])} محصول",
@@ -92,5 +93,5 @@ module = Module(
     notify={"crawl_done": "پایان بروزرسانی قیمت رقبا (با خلاصه)", "crawl_failed": "خطای بروزرسانی قیمت رقبا"},
     summary=summary,
     cli={"crawl": _cli_crawl},
-    bot={"prices": ("🏷 قیمت رقبا", bot_prices)},
+    bot={"prices": Report("🏷 قیمت رقبا", bot_prices)},
 )

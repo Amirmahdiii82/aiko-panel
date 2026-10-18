@@ -3,6 +3,7 @@ live stream, notification settings, system/backup and file uploads."""
 import asyncio
 import logging
 import platform
+import shutil
 import sqlite3
 import uuid
 from datetime import date
@@ -11,6 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 
 from . import activity, auth, backup, bot, config, db, events, integrations, jobs
 from .modules import loaded as modules
@@ -494,7 +496,9 @@ async def system_backup_now(user=Admin):
 @router.get("/api/system/backup.zip")
 async def system_backup_zip(user=Admin):
     path = await run_in_threadpool(backup.databases_zip)
-    return FileResponse(path, filename=path.name, media_type="application/zip")
+    # the zip and the database copies next to it live in a temp folder: remove it once the download is sent
+    return FileResponse(path, filename=path.name, media_type="application/zip",
+                        background=BackgroundTask(shutil.rmtree, path.parent, ignore_errors=True))
 
 
 # ---------------------------------------------------------------- uploads (receipts, invoices, ...)

@@ -7,7 +7,8 @@ Money spent on stock is not an expense here: it becomes cost of goods when the i
 """
 from datetime import date, timedelta
 
-from . import db, jalali, ledger
+from ...core import jalali
+from . import db, ledger
 
 
 def _jalali_today() -> tuple[int, int, int]:

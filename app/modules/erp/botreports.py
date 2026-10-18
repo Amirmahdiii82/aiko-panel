@@ -1,7 +1,7 @@
 """Shop reports for the owners' bot: short, phone-sized texts built from the same numbers as the dashboard."""
+from ...core.botkit import Report
+from ...core.text import fa, toman
 from . import db, ledger, reports
-
-toman, fa = ledger.toman, ledger.fa
 
 
 def today() -> str:
@@ -63,7 +63,7 @@ def low_stock() -> str:
 
 
 COMMANDS = {
-    "today": ("📊 فروش امروز", today),
-    "month": ("📈 گزارش این ماه", month),
-    "low": ("⚠️ موجودی کم", low_stock),
+    "today": Report("📊 فروش امروز", today),
+    "month": Report("📈 گزارش این ماه", month),
+    "low": Report("⚠️ موجودی کم", low_stock),
 }

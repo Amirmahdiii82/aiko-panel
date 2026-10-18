@@ -2,29 +2,34 @@
 Everything goes through the same ledger functions as the panel (stock, cost of goods, site sync, notifications)."""
 from datetime import date, timedelta
 
-from ...core.botkit import Reply, fa, norm, parse_amount, parse_int, toman
+from ...core.botkit import Flow, Reply, button_arg, fa, norm, parse_amount, parse_int, toman
 from . import db, ledger
 
 SALE_CHANNELS = ["in_person", "instagram", "website", "agent", "other"]
 
 
 def _user(u: dict) -> dict:
-    """The ERP view of the panel user (name, staff account) for ledger calls."""
+    """The ERP view of the bound owner (name, staff account) for ledger calls. The bot already lets only owners
+    record; this fails closed anyway if the ERP does not see them as admin."""
     with db.read() as con:
-        row = db.one(con.execute("SELECT id, name, role, account_id FROM users WHERE id = ?", (u["id"],))) or {}
-    return {"id": u["id"], "name": row.get("name") or u.get("name") or "", "role": row.get("role") or "admin",
-            "account_id": row.get("account_id")}
+        row = db.one(con.execute("SELECT id, name, role, account_id FROM users WHERE id = ?", (u["id"],)))
+    if not row or row["role"] != "admin":
+        raise ledger.LedgerError("فقط مدیر کل می‌تواند از ربات ثبت کند")
+    return row
 
 
 def _search(text: str, limit: int = 8) -> list[dict]:
-    words = [w for w in norm(text).split() if w]
+    words = norm(text).split()
+    if not words:
+        return []
     with db.read() as con:
         rows = db.rows(con.execute("SELECT id, name, sku, stock, price FROM products WHERE active = 1"))
-    def key(p):
-        return norm(f"{p['name']} {p['sku'] or ''}")
-    hits = [p for p in rows if all(w in key(p) for w in words)] if words else []
-    hits.sort(key=lambda p: (not key(p).startswith(words[0]) if words else 0, p["stock"] <= 0, p["name"]))
-    return hits[:limit]
+    hits = []
+    for p in rows:
+        key = norm(f"{p['name']} {p['sku'] or ''}")
+        if all(w in key for w in words):
+            hits.append((not key.startswith(words[0]), p["stock"] <= 0, p["name"], p))
+    return [h[-1] for h in sorted(hits, key=lambda h: h[:3])][:limit]
 
 
 def _popular(limit: int = 6) -> list[dict]:
@@ -45,7 +50,7 @@ def _cart_text(items: list[dict]) -> str:
     return "\n".join(lines) + f"\nجمع: {toman(sum(i['qty'] * i['unit_price'] for i in items))}"
 
 
-class SaleFlow:
+class SaleFlow(Flow):
     label = "🛍 ثبت فروش"
 
     def start(self, user, st) -> Reply:
@@ -58,8 +63,11 @@ class SaleFlow:
     def handle(self, user, st, text=None, data=None) -> Reply:
         step = st.get("step")
         if step == "product":
-            if data and data.startswith("p:"):
-                return self._pick(st, int(data[2:]))
+            pid = button_arg(data, "p")
+            if pid and pid.isdigit():
+                return self._pick(st, int(pid))
+            if data:
+                return Reply("نام محصول را بنویسید یا یکی از دکمه‌ها را بزنید.")
             hits = _search(text or "")
             if not hits:
                 return Reply("محصولی با این نام پیدا نشد. یک کلمه دیگر از نامش را بنویسید:")
@@ -67,7 +75,8 @@ class SaleFlow:
                 return self._pick(st, hits[0]["id"])
             return Reply("کدام یکی؟", _product_buttons(hits))
         if step == "qty":
-            qty = int(data[2:]) if data and data.startswith("q:") else parse_int(text)
+            q = button_arg(data, "q")
+            qty = int(q) if q and q.isdigit() else parse_int(text)
             if not qty or qty < 1:
                 return Reply("تعداد را با عدد بنویسید (مثلاً ۲):")
             st["cur"]["qty"] = qty
@@ -78,8 +87,8 @@ class SaleFlow:
                          [[(f"✅ همان {toman(p)}", "pr:default")]] if p else [])
         if step == "price":
             price = st["cur"]["price"] if data == "pr:default" else parse_amount(text)
-            if price is None or price < 0:
-                return Reply("مبلغ را با عدد بنویسید (مثلاً ۴۸۰۰۰۰ یا ۴۸۰ هزار):")
+            if price is None:                # 0 is allowed: a gift or a sample
+                return Reply("قیمت را با عدد بنویسید (مثلاً ۴۸۰۰۰۰ یا ۴۸۰ هزار؛ برای هدیه ۰):")
             cur = st.pop("cur")
             st["items"].append({"product_id": cur["id"], "name": cur["name"], "qty": cur["qty"], "unit_price": price})
             st["step"] = "more"
@@ -88,13 +97,19 @@ class SaleFlow:
             if data == "more":
                 st["step"] = "product"
                 return Reply("نام محصول بعدی را بنویسید:", _product_buttons(_popular()))
+            if text:                         # typed the next product's name instead of tapping ➕
+                st["step"] = "product"
+                return self.handle(user, st, text=text)
+            if data != "next":
+                return Reply("«➕ محصول دیگر» یا «✔️ ادامه» را بزنید.")
             st["step"] = "channel"
             return Reply("از کدام کانال فروخته شد؟",
                          [[(ledger.CHANNELS[c], f"ch:{c}") for c in SALE_CHANNELS[i:i + 2]] for i in range(0, len(SALE_CHANNELS), 2)])
         if step == "channel":
-            if not (data and data.startswith("ch:")):
+            channel = button_arg(data, "ch")
+            if channel not in SALE_CHANNELS:
                 return Reply("یکی از دکمه‌ها را بزنید.")
-            st["channel"] = data[3:]
+            st["channel"] = channel
             st["step"] = "customer"
             return Reply("نام مشتری؟ (اختیاری)", [[("رد کردن", "skip")]])
         if step == "customer":
@@ -102,8 +117,11 @@ class SaleFlow:
             return self._confirm(st)
         if step == "discount":
             amount = parse_amount(text)
+            subtotal = sum(i["qty"] * i["unit_price"] for i in st["items"])
             if amount is None:
                 return Reply("مبلغ تخفیف را با عدد بنویسید (مثلاً ۵۰ هزار):")
+            if amount > subtotal:
+                return Reply(f"تخفیف از جمع فروش ({toman(subtotal)}) بیشتر است؛ مبلغ درست را بنویسید:")
             st["discount"] = amount
             return self._confirm(st)
         if step == "confirm":
@@ -120,6 +138,8 @@ class SaleFlow:
     def _pick(self, st, pid: int) -> Reply:
         with db.read() as con:
             p = ledger.get_product(con, pid)
+        if not p["active"]:                  # an old button for a product archived since
+            return Reply(f"«{p['name']}» بایگانی شده است. محصول دیگری بنویسید:")
         st["cur"] = {"id": p["id"], "name": p["name"], "stock": p["stock"], "price": p["price"]}
         st["step"] = "qty"
         stock = f"موجودی: {fa(p['stock'])}" if p["stock"] > 0 else "⛔️ این محصول ناموجود است"
@@ -155,7 +175,7 @@ class SaleFlow:
         return Reply(f"✅ فروش {sale['code']} ثبت شد — {toman(sale['total'])}\n{stock}", done=True)
 
 
-class ExpenseFlow:
+class ExpenseFlow(Flow):
     label = "💸 ثبت هزینه"
 
     def start(self, user, st) -> Reply:
@@ -175,9 +195,11 @@ class ExpenseFlow:
             st["cats"] = cats
             return Reply("دسته هزینه؟", [[(c, f"c:{i}") for i, c in enumerate(cats[j:j + 2], j)] for j in range(0, len(cats), 2)])
         if step == "category":
-            if not (data and data.startswith("c:")):
+            c = button_arg(data, "c")
+            i = int(c) if c and c.isdigit() else -1
+            if not 0 <= i < len(st["cats"]):
                 return Reply("یکی از دسته‌ها را بزنید.")
-            st["category"] = st["cats"][int(data[2:])]
+            st["category"] = st["cats"][i]
             st["step"] = "desc"
             return Reply("توضیح کوتاه؟ (مثلاً «جعبه‌های بسته‌بندی»)", [[("رد کردن", "skip")]])
         if step == "desc":
@@ -187,13 +209,16 @@ class ExpenseFlow:
             with db.read() as con:
                 accs = db.rows(con.execute("SELECT id, name FROM accounts WHERE active = 1 ORDER BY sort, id"))
             accs.sort(key=lambda a: a["id"] != u.get("account_id"))       # this owner's own card first
-            return Reply("از کدام حساب پرداخت شد؟", [[(a["name"], f"a:{a['id']}")] for a in accs[:8]])
+            accs = accs[:15]                 # a phone-sized list; the rest are recorded from the panel
+            st["accounts"] = {str(a["id"]): a["name"] for a in accs}
+            return Reply("از کدام حساب پرداخت شد؟", [[(a["name"], f"a:{a['id']}")] for a in accs]
+                         + [[("حساب مشخصی ندارد", "a:0")]])
         if step == "account":
-            if not (data and data.startswith("a:")):
+            key = button_arg(data, "a")
+            if key is None or (key != "0" and key not in st.get("accounts", {})):
                 return Reply("یکی از حساب‌ها را بزنید.")
-            st["account_id"] = int(data[2:])
-            with db.read() as con:
-                st["account_name"] = (db.one(con.execute("SELECT name FROM accounts WHERE id = ?", (st["account_id"],))) or {}).get("name", "")
+            st["account_id"] = int(key) or None
+            st["account_name"] = st.get("accounts", {}).get(key, "بدون حساب مشخص")
             st["step"] = "confirm"
             return Reply(f"لطفاً بررسی کنید:\n💸 {toman(st['amount'])}\nدسته: {st['category']}"
                          + (f"\nتوضیح: {st['desc']}" if st["desc"] else "") + f"\nپرداخت از: {st['account_name']}",

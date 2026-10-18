@@ -53,7 +53,10 @@ def check_password_strength(password: str) -> None:
 
 # ---------------------------------------------------------------- login throttling
 def client_ip(request: Request) -> str:
-    return request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "")
+    """The caller's address as uvicorn resolved it (it trusts X-Forwarded-For only from Caddy on 127.0.0.1).
+    Never read the header directly: its first entry is whatever the client sent, so a login throttle keyed on it
+    could be bypassed by sending a different fake address with every guess."""
+    return request.client.host if request.client else ""
 
 
 def check_rate_limit(ip: str) -> None:
@@ -66,6 +69,10 @@ def check_rate_limit(ip: str) -> None:
 
 
 def record_failure(ip: str) -> None:
+    if len(_failed) > 5000:                    # forget addresses whose window has passed (bounded memory)
+        window = time.time() - 600
+        for key in [k for k, v in _failed.items() if not v or v[-1] < window]:
+            _failed.pop(key, None)
     _failed.setdefault(ip, []).append(time.time())
 
 

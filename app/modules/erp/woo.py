@@ -22,6 +22,7 @@ from difflib import SequenceMatcher
 import httpx
 
 from ...core import integrations
+from ...core.text import fold
 from . import db, ledger, notify
 
 log = logging.getLogger("aiko.woo")
@@ -32,7 +33,6 @@ CURRENCY_FACTOR = {"IRR": 0.1, "IRHR": 100, "IRT": 1, "IRHT": 1000}
 
 _loop: asyncio.AbstractEventLoop | None = None
 _wake: asyncio.Event | None = None
-_pull_now = False
 _sync_lock: asyncio.Lock | None = None      # one order import at a time (worker poll vs. full sync)
 TEHRAN_OFFSET = "+03:30"
 
@@ -53,28 +53,6 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML
       "Chrome/124.0 Safari/537.36 AikoERP/1.0")
 
 
-async def _get_json(client: httpx.AsyncClient, url: str, params: dict) -> tuple[list, httpx.Headers]:
-    last = ""
-    for attempt in range(3):
-        try:
-            r = await client.get(url, params=params)
-        except httpx.HTTPError as exc:
-            last = f"ارتباط با سایت برقرار نشد ({exc.__class__.__name__})"
-            await asyncio.sleep(2 * (attempt + 1))
-            continue
-        if r.status_code >= 500:
-            last = f"خطای سرور سایت ({r.status_code})"
-            await asyncio.sleep(2 * (attempt + 1))
-            continue
-        if r.status_code != 200:
-            raise WooError(f"فهرست محصولات سایت خوانده نشد ({r.status_code})")
-        try:
-            return r.json(), r.headers
-        except ValueError:
-            raise WooError("پاسخ سایت قابل خواندن نیست؛ شاید فایروال هاست درخواست را بسته است.")
-    raise WooError(last or "ارتباط با سایت برقرار نشد")
-
-
 def settings() -> dict:
     """ERP sync options + the shared connection (address, keys, currency) from core."""
     return {**(db.get_setting("woo", {}) or {}), **integrations.woo()}
@@ -83,6 +61,15 @@ def settings() -> dict:
 def configured(s: dict | None = None) -> bool:
     s = s or settings()
     return bool(s.get("url") and s.get("key") and s.get("secret"))
+
+
+def ensure_webhook_secret() -> None:
+    import secrets
+    with db.tx() as con:
+        s = db.get_setting("woo", {}, con) or {}
+        if not s.get("webhook_secret"):
+            s["webhook_secret"] = secrets.token_urlsafe(24)
+            db.set_setting("woo", s, con)
 
 
 def adopt_legacy_keys() -> None:
@@ -176,83 +163,41 @@ class Woo:
 # ---------------------------------------------------------------- catalog (site products for linking)
 
 async def fetch_catalog() -> dict:
-    """All site products and their variations. Uses the authenticated API when keys exist (exact stock),
-    otherwise the public Store API (no stock numbers, only in/out of stock)."""
+    """Every site product and color (variation) with exact stock, through the API (keys required)."""
     s = settings()
+    if not configured(s):
+        raise WooError("اول در «تنظیمات ← سایت و اتصال‌ها» کلیدهای ووکامرس را وارد کنید")
     entries = []
-    if configured(s):
-        async with Woo(s) as woo:
-            currency = s.get("currency") or "IRT"
-            products = await woo.paged("products", {"status": "any"})
-            for p in products:
-                image = (p.get("images") or [{}])[0].get("src") if p.get("images") else None
-                cats = [_clean(c.get("name")) for c in p.get("categories") or []]
-                brand = next((_clean(b.get("name")) for b in p.get("brands") or []), "") or _attr(p, ("برند", "brand"))
-                entries.append({
-                    "woo_id": p["id"], "variation_id": None, "type": p.get("type"), "name": _clean(p.get("name")),
-                    "price": to_toman(p.get("price"), currency), "image": image, "url": p.get("permalink"),
-                    "status": p.get("status"), "manage_stock": p.get("manage_stock") is True,
-                    "stock": p.get("stock_quantity"), "in_stock": p.get("stock_status") == "instock",
-                    "sku": p.get("sku") or "", "categories": cats, "brand": brand,
-                })
-                if p.get("type") == "variable":
-                    for v in await woo.paged(f"products/{p['id']}/variations"):
-                        label = " / ".join(a.get("option") or "" for a in v.get("attributes") or []) or f"#{v['id']}"
-                        entries.append({
-                            "woo_id": p["id"], "variation_id": v["id"], "type": "variation",
-                            "name": f"{_clean(p.get('name'))} — {label}", "variation_label": label,
-                            "price": to_toman(v.get("price"), currency),
-                            "image": (v.get("image") or {}).get("src") or image, "url": p.get("permalink"),
-                            "status": v.get("status"), "manage_stock": v.get("manage_stock") is True,
-                            "stock": v.get("stock_quantity"), "in_stock": v.get("stock_status") == "instock",
-                            "sku": v.get("sku") or "", "categories": cats, "brand": brand,
-                        })
-        source = "api"
-    else:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(45, connect=15), follow_redirects=True,
-                                     headers={"User-Agent": UA, "Accept": "application/json"}) as client:
-            page = 1
-            while page < 30:
-                data, _ = await _get_json(client, f"{s.get('url')}/wp-json/wc/store/v1/products",
-                                          {"per_page": 100, "page": page})
-                entries.extend(store_entries(data))
-                if len(data) < 100:
-                    break
-                page += 1
-        source = "public"
-    catalog = {"fetched_at": db.now(), "source": source, "items": entries}
+    async with Woo(s) as woo:
+        currency = s.get("currency") or "IRT"
+        for p in await woo.paged("products", {"status": "any"}):
+            image = (p.get("images") or [{}])[0].get("src") if p.get("images") else None
+            cats = [_clean(c.get("name")) for c in p.get("categories") or []]
+            brand = next((_clean(b.get("name")) for b in p.get("brands") or []), "") or _attr(p, ("برند", "brand"))
+            entries.append({
+                "woo_id": p["id"], "variation_id": None, "type": p.get("type"), "name": _clean(p.get("name")),
+                "price": to_toman(p.get("price"), currency), "image": image, "url": p.get("permalink"),
+                "status": p.get("status"), "manage_stock": p.get("manage_stock") is True,
+                "stock": p.get("stock_quantity"), "in_stock": p.get("stock_status") == "instock",
+                "sku": p.get("sku") or "", "categories": cats, "brand": brand,
+            })
+            if p.get("type") == "variable":
+                for v in await woo.paged(f"products/{p['id']}/variations"):
+                    label = " / ".join(a.get("option") or "" for a in v.get("attributes") or []) or f"#{v['id']}"
+                    entries.append({
+                        "woo_id": p["id"], "variation_id": v["id"], "type": "variation",
+                        "name": f"{_clean(p.get('name'))} — {label}", "variation_label": label,
+                        "price": to_toman(v.get("price"), currency),
+                        "image": (v.get("image") or {}).get("src") or image, "url": p.get("permalink"),
+                        "status": v.get("status"), "manage_stock": v.get("manage_stock") is True,
+                        "stock": v.get("stock_quantity"), "in_stock": v.get("stock_status") == "instock",
+                        "sku": v.get("sku") or "", "categories": cats, "brand": brand,
+                    })
+    catalog = {"fetched_at": db.now(), "source": "api", "items": entries}
     db.set_setting("woo_catalog", catalog)
     with db.tx() as con:
         _refresh_link_details(con, entries)
     return catalog
-
-
-def store_entries(products: list) -> list[dict]:
-    """Catalog entries from the public Store API product list (no stock numbers)."""
-    entries = []
-    for p in products:
-        prices = p.get("prices") or {}
-        factor_currency = prices.get("currency_code") or "IRT"
-        minor = int(prices.get("currency_minor_unit") or 0)
-        price = to_toman(int(prices.get("price") or 0) / (10 ** minor), factor_currency)
-        image = (p.get("images") or [{}])[0].get("thumbnail") if p.get("images") else None
-        entries.append({
-            "woo_id": p["id"], "variation_id": None, "type": p.get("type"), "name": _clean(p.get("name")),
-            "price": price, "image": image, "url": p.get("permalink"), "status": "publish",
-            "manage_stock": p.get("low_stock_remaining") is not None,
-            "stock": p.get("low_stock_remaining"), "in_stock": bool(p.get("is_in_stock")),
-            "sku": p.get("sku") or "",
-        })
-        for v in p.get("variations") or []:
-            label = " / ".join(str(a.get("value") or "") for a in v.get("attributes") or []
-                               if a.get("value")) or f"#{v['id']}"
-            entries.append({
-                "woo_id": p["id"], "variation_id": v["id"], "type": "variation",
-                "name": f"{_clean(p.get('name'))} — {label}", "variation_label": label, "price": price,
-                "image": image, "url": p.get("permalink"), "status": "publish", "manage_stock": None,
-                "stock": None, "in_stock": None, "sku": "",
-            })
-    return entries
 
 
 def _attr(p: dict, names: tuple) -> str:
@@ -279,13 +224,11 @@ def _refresh_link_details(con, entries: list[dict]) -> None:
                     (e["name"], e["url"], e["image"], e["stock"], p["id"]))
 
 
-_AR = str.maketrans({"ي": "ی", "ك": "ک", "ة": "ه", "أ": "ا", "إ": "ا", "ۀ": "ه", "‌": " ", "‌": " ",
-                     "۰": "0", "۱": "1", "۲": "2", "۳": "3", "۴": "4", "۵": "5", "۶": "6", "۷": "7", "۸": "8", "۹": "9"})
 _STOP = {"مدل", "شماره", "رنگ", "کد", "و", "با", "|", "-", "—", "–"}
 
 
 def normalize(text: str) -> str:
-    text = (text or "").translate(_AR).lower()
+    text = fold(text)
     text = re.sub(r"[()\[\]|،,:;/\\\-–—_+&#.!?\"']", " ", text)
     return " ".join(t for t in text.split() if t not in _STOP)
 
@@ -642,13 +585,6 @@ def verify_webhook(body: bytes, signature: str | None) -> bool:
     return hmac.compare_digest(expected, signature.strip())
 
 
-async def test_connection(s: dict | None = None) -> dict:
-    try:
-        return await integrations.test_woo()
-    except integrations.IntegrationError as exc:
-        raise WooError(str(exc))
-
-
 # ---------------------------------------------------------------- background worker
 
 def wake() -> None:
@@ -656,14 +592,8 @@ def wake() -> None:
         _loop.call_soon_threadsafe(_wake.set)
 
 
-def request_pull() -> None:
-    global _pull_now
-    _pull_now = True
-    wake()
-
-
 async def worker() -> None:
-    global _loop, _wake, _pull_now
+    global _loop, _wake
     _loop = asyncio.get_running_loop()
     _wake = asyncio.Event()
     ledger.sync_wake = wake
@@ -684,8 +614,7 @@ async def worker() -> None:
             if s.get("auto_push"):
                 await push_pending()
             minutes = max(1, int(s.get("pull_minutes") or 3))
-            if _pull_now or time.monotonic() - last_pull >= minutes * 60:
-                _pull_now = False
+            if time.monotonic() - last_pull >= minutes * 60:
                 last_pull = time.monotonic()
                 async with sync_lock():
                     await pull_orders()

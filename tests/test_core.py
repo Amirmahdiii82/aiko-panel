@@ -165,3 +165,21 @@ def test_scripts_are_revalidated_so_a_deploy_is_never_hidden_by_the_browser_cach
     assert client.get("/static/js/widgets.js").headers["cache-control"] == "no-cache"
     assert client.get("/m/erp/index.js").headers["cache-control"] == "no-cache"
     assert "max-age" in client.get("/static/js/app.js?v=abc").headers["cache-control"]
+
+
+def test_backup_download_leaves_no_temp_copies(owner):
+    import tempfile
+    from pathlib import Path
+    before = set(Path(tempfile.gettempdir()).iterdir())
+    r = owner.get("/api/system/backup.zip")
+    assert r.status_code == 200 and r.content[:2] == b"PK"
+    leftovers = [p for p in set(Path(tempfile.gettempdir()).iterdir()) - before if p.is_dir() and any(p.glob("*.db"))]
+    assert not leftovers
+
+
+def test_login_throttle_cannot_be_bypassed_with_a_fake_forwarded_for(client):
+    for i in range(8):
+        r = client.post("/api/login", json={"username": "amir", "password": "wrong"}, headers={"X-Forwarded-For": f"10.0.0.{i}"})
+        assert r.status_code == 401
+    r = client.post("/api/login", json={"username": "amir", "password": "owner-pass"}, headers={"X-Forwarded-For": "10.9.9.9"})
+    assert r.status_code == 429

@@ -95,10 +95,6 @@ def normalize(text: str | None) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
-def tokens(text: str) -> list[str]:
-    return [w for w in normalize(text).split() if w and w not in STOPWORDS]
-
-
 def core_tokens(text: str) -> list[str]:
     """Identity words only: no sizes, no units, no stopwords."""
     t = _SIZE_RE.sub(" ", normalize(text))

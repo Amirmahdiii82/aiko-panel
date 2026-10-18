@@ -353,11 +353,3 @@ def _brandish_words(words: list[str], brand_forms: set[str]) -> set[str]:
                 found.update(fa[i:i + n])
     return found
 
-
-def build_query(name: str, brand: str | None) -> str:
-    """Short search query: identity words only (sizes and filler removed), at most 7 words."""
-    toks = tn.core_tokens(name)
-    # keep brand at the front if not already present
-    if brand and not any(tn.contains_phrase(" ".join(toks), f) for f in tn.brand_forms(brand)):
-        toks = tn.normalize(brand).split() + toks
-    return " ".join(toks[:7])

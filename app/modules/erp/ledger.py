@@ -7,8 +7,7 @@ Money is tracked per account (a partner's personal card, the site gateway, the c
 sold for you, ...). A partner's stake in the shop is what they paid in minus what they hold of the
 shop's money; the settlement tells partners how to even out their stakes by ownership share.
 """
-import sqlite3
-
+from ...core.text import fa, toman
 from . import db, notify
 
 CHANNELS = {
@@ -19,7 +18,6 @@ CHANNELS = {
     "other": "سایر",
 }
 
-_FA = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 
 # Set by the WooCommerce module: called after a commit that changed stock of a linked product
 sync_wake = None
@@ -27,14 +25,6 @@ sync_wake = None
 
 class LedgerError(ValueError):
     """A user-facing validation error (message is shown as-is)."""
-
-
-def fa(n) -> str:
-    return str(n).translate(_FA)
-
-
-def toman(amount) -> str:
-    return f"{int(round(amount or 0)):,}".replace(",", "٬").translate(_FA) + " تومان"
 
 
 def _int(value, field: str, minimum: int | None = 0) -> int:
@@ -721,7 +711,3 @@ def ensure_agent_account(con, user_id: int, name: str) -> int:
     cur = con.execute("INSERT INTO accounts (name, kind, user_id, note, sort) VALUES (?, 'agent', ?, ?, 50)",
                       (f"پول نزد {name}", user_id, "پول فروش‌هایی که این فرد انجام داده و هنوز تحویل نداده"))
     return cur.lastrowid
-
-
-def is_integrity_error(exc: Exception) -> bool:
-    return isinstance(exc, sqlite3.IntegrityError)

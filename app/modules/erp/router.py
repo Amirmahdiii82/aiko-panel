@@ -626,18 +626,6 @@ async def woo_save(request: Request, user=Admin):
     return _woo_public(woo.settings())
 
 
-@router.post("/woo/test")
-async def woo_test(user=Admin):
-    result = await woo.test_connection()
-    with db.tx() as con:
-        saved = db.get_setting("woo", {}, con) or {}
-        if not saved.get("webhook_secret"):
-            saved["webhook_secret"] = secrets.token_urlsafe(24)
-        db.set_setting("woo", saved, con)
-    woo.wlog("test", True, f"اتصال برقرار شد — {result.get('products')} محصول، واحد پول: {result.get('currency')}")
-    return result
-
-
 @router.post("/woo/full-sync")
 async def woo_full_sync(user=Admin):
     sitesync.start(user)
@@ -651,13 +639,6 @@ async def merge_product(product_id: int, request: Request, user=Admin):
     with db.tx() as con:
         ledger.merge_products(con, product_id, int(body["into"]), user)
     return {"ok": True}
-
-
-@router.post("/woo/catalog/refresh")
-async def woo_catalog_refresh(user=Admin):
-    catalog = await woo.fetch_catalog()
-    woo.wlog("catalog", True, f"{len(catalog['items'])} محصول/رنگ از سایت خوانده شد ({catalog['source']})")
-    return {"count": len(catalog["items"]), "source": catalog["source"]}
 
 
 @router.get("/woo/catalog")
@@ -708,28 +689,6 @@ async def woo_unlink(request: Request, user=Admin):
                        woo_error = NULL, woo_stock = NULL WHERE id = ?""", (int(body["product_id"]),))
         notify.publish_after(con, {"type": "refresh", "scope": "products"})
     return {"ok": True}
-
-
-@router.post("/woo/import-products")
-async def woo_import_products(request: Request, user=Admin):
-    """Create products here for site products that do not exist yet (e.g. new arrivals)."""
-    body = await request.json()
-    wanted = {(int(x["woo_id"]), int(x["variation_id"]) if x.get("variation_id") else None) for x in body.get("items") or []}
-    catalog = db.get_setting("woo_catalog", {}) or {}
-    created = 0
-    with db.tx() as con:
-        for e in catalog.get("items") or []:
-            if (e["woo_id"], e["variation_id"]) not in wanted:
-                continue
-            ledger.create_product(con, {
-                "name": e["name"], "price": e["price"], "image": e["image"], "woo_id": e["woo_id"],
-                "woo_variation_id": e["variation_id"], "woo_name": e["name"], "woo_url": e["url"],
-                "stock": e["stock"] if isinstance(e.get("stock"), int) and e["stock"] > 0 else 0,
-            }, user["id"], quiet=True)
-            created += 1
-        notify.activity(con, "woo_import", f"{ledger.fa(created)} محصول از سایت ساخته شد",
-                        "قیمت خرید و موجودی این‌ها را کامل کنید.", user_id=user["id"], link="#/products")
-    return {"created": created}
 
 
 @router.post("/woo/push-all")

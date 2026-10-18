@@ -85,9 +85,12 @@ def test_made_admin_of_a_channel_becomes_the_backup_channel(owner, monkeypatch):
     async def fake_send(manual=False):
         return {"ok": True, "error": "", "size": 1}
     monkeypatch.setattr(backup, "send_to_telegram", fake_send)
-    upd = {"update_id": 2, "my_chat_member": {"chat": {"id": -100999, "type": "channel", "title": "B"},
-                                              "new_chat_member": {"status": "administrator"}}}
-    _run(FakeApi(), upd)
+    def added_by(uid, cid):
+        return {"update_id": 2, "my_chat_member": {"chat": {"id": cid, "type": "channel", "title": "B"}, "from": {"id": uid},
+                                                   "new_chat_member": {"status": "administrator"}}}
+    _run(FakeApi(), added_by(123456, -100555))          # a stranger adds the bot to THEIR channel: never adopted
+    assert backup.telegram_settings()["chat_id"] == ""
+    _run(FakeApi(), added_by(OWNER, -100999))           # an owner adds it: that is the backup channel
     assert backup.telegram_settings()["chat_id"] == "-100999"
     assert db.core.get_setting("bot_seen_chats")[0]["id"] == "-100999"
 
@@ -106,7 +109,7 @@ def test_record_a_sale_from_the_bot(owner):
     pid = owner.post("/api/erp/products", json={"name": "ریمل اسنس", "price": 550_000, "stock": 5}, headers=H).json()["id"]
     api = FakeApi()
     _run(api, _msg("🛍 ثبت فروش"))
-    assert "کدام کاربر" in api.sent[-1][1]                       # asked once who this chat is
+    assert "کدام مدیر" in api.sent[-1][1]                        # asked once who this chat is
     _run(api, _cb(f"who:{_owner_id()}"))
     _run(api, _msg("ریمل"))                                       # one match: goes straight to quantity
     assert "چند عدد" in api.sent[-1][1]
@@ -145,3 +148,61 @@ def test_record_an_expense_and_cancel_a_flow(owner):
     from app.modules.erp import db as erp_db
     with erp_db.read() as con:
         assert con.execute("SELECT amount FROM expenses ORDER BY id DESC LIMIT 1").fetchone()[0] == 250_000
+
+
+def test_amounts_typed_the_iranian_way():
+    from app.core.botkit import parse_amount
+    assert parse_amount("540.000") == 540_000 and parse_amount("۱.۲۵۰.۰۰۰") == 1_250_000
+    assert parse_amount("۵۴۰ هزار") == 540_000 and parse_amount("1.5 میلیون") == 1_500_000
+    assert parse_amount("۵۴۰٬۰۰۰ تومان") == 540_000 and parse_amount("abc") is None
+    # a decimal with a unit is never read as thousands (1.5 million, not 1.5 billion)
+    assert parse_amount("1.500 میلیون") == 1_500_000 and parse_amount("۱٫۲۵۰ میلیون") == 1_250_000
+    assert parse_amount("۲٫۵ هزار") == 2_500 and parse_amount("0") == 0
+
+
+def test_demoted_owner_loses_the_bot_and_stale_who_buttons_do_nothing(owner):
+    _setup(owner)
+    from app.core import bot as b
+    db.core.set_setting(b.USERS_KEY, {str(OWNER): _owner_id()})
+    owner.post("/api/erp/products", json={"name": "کرم", "price": 100_000, "stock": 3}, headers=H)
+    api = FakeApi()
+    _run(api, _msg("🛍 ثبت فروش"))
+    _run(api, _msg("کرم"))
+    _run(api, _cb("q:1"))
+    _run(api, _cb(f"who:{_owner_id()}"))                 # an old button from earlier: ignored, cart untouched
+    assert b._state(OWNER)["st"]["step"] == "price"
+    with db.core.tx() as con:                           # this owner is demoted mid-sale
+        con.execute("UPDATE users SET is_admin = 0 WHERE id = ?", (_owner_id(),))
+    _run(api, _cb("pr:default"))
+    assert "کدام مدیر" in api.sent[-1][1]               # asked again; nothing recorded under the demoted user
+    from app.modules.erp import db as erp_db
+    with erp_db.read() as con:
+        assert con.execute("SELECT COUNT(*) FROM sales").fetchone()[0] == 0
+
+
+def test_an_error_keeps_the_cart_and_typing_a_name_adds_another_item(owner):
+    _setup(owner)
+    from app.core import bot as b
+    db.core.set_setting(b.USERS_KEY, {str(OWNER): _owner_id()})
+    for name in ("رژ لب", "ریمل"):
+        owner.post("/api/erp/products", json={"name": name, "price": 200_000, "stock": 5}, headers=H)
+    api = FakeApi()
+    _run(api, _msg("🛍 ثبت فروش"))
+    _run(api, _msg("رژ"))
+    _run(api, _cb("q:1"))
+    _run(api, _cb("pr:default"))
+    _run(api, _msg("ریمل"))                              # typed instead of tapping ➕: added, not skipped
+    _run(api, _cb("q:1"))
+    _run(api, _cb("pr:default"))
+    assert len(b._state(OWNER)["st"]["items"]) == 2
+    _run(api, _cb("next"))
+    _run(api, _cb("ch:in_person"))
+    _run(api, _cb("skip"))
+    _run(api, _cb("discount"))
+    _run(api, _msg("۹۰۰ هزار"))                          # more than the sale: refused right at this step
+    assert "بیشتر است" in api.sent[-1][1] and b._state(OWNER)["st"]["step"] == "discount"
+    _run(api, _msg("۵۰ هزار"))
+    _run(api, _cb("save"))
+    from app.modules.erp import db as erp_db
+    with erp_db.read() as con:
+        assert con.execute("SELECT total FROM sales").fetchone()[0] == 350_000
