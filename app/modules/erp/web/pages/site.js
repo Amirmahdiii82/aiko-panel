@@ -90,7 +90,7 @@ export async function render(view, params, { setTitle }) {
 
 function page(st, cat) {
   if (!st.configured) {
-    return html`<section class="card sync-status"><div class="row nowrap" style="align-items:flex-start;gap:14px">
+    return html`<section class="card sync-status"><div class="sync-head">
       <span class="sync-orb off">${icon("unlink")}</span>
       <div><h2>سایت هنوز وصل نشده</h2><p class="small muted mt8">آدرس و کلید ووکامرس را ${isOwner() ? html`در <a href="#/settings/connections">تنظیمات ← اتصال‌ها</a>` : "از مدیر کل بخواهید"} وارد کنید.</p></div>
     </div></section>`;
@@ -107,9 +107,9 @@ function statusCard(st) {
   const s = st.settings, c = st.counts || {};
   return html`<section class="card sync-status">
     <div class="row between" style="align-items:flex-start">
-      <div class="row nowrap" style="align-items:flex-start;gap:14px;min-width:0;flex:1 1 260px">
+      <div class="sync-head" style="flex:1 1 260px">
         <span class="sync-orb">${icon("refresh-cw")}</span>
-        <div style="min-width:0">
+        <div>
           <h2>${c.pending ? `در حال ارسال ${fa(c.pending)} محصول به سایت…` : "سایت با انبار پنل هماهنگ است"}</h2>
           <p class="small muted mt8">${fa(c.ok || 0)} محصول هماهنگ${c.checked_at ? ` — آخرین بررسی ${when(c.checked_at)}` : ""}${s.webhooks_at ? "، سفارش‌ها فوری می‌آیند" : ""}</p>
         </div>
@@ -128,9 +128,9 @@ function startCard(st, cat) {
   const c = st.counts || {};
   const differ = (cat.linked || []).filter((p) => p.woo_state === "differ");
   return html`<section class="card sync-status">
-    <div class="row nowrap" style="align-items:flex-start;gap:14px">
+    <div class="sync-head">
       <span class="sync-orb paused">${icon("scale")}</span>
-      <div style="min-width:0">
+      <div>
         <h2>یک انتخاب تا شروع همگام‌سازی</h2>
         <p class="small muted mt8">از این به بعد پنل مرجع موجودی است و سایت همیشه همان عدد را نشان می‌دهد. فقط یک بار بگویید امروز کدام عدد درست‌تر است.
           ${fa(c.ok || 0)} محصول در هر دو یکی است${differ.length ? html` و <b>${fa(differ.length)} محصول فرق دارد</b>` : ""}.</p>
@@ -182,7 +182,7 @@ function todoCard(st, cat) {
             data-name="${d.product.name}" data-into-name="${d.site_product.name}">ادغام</button></div>`)) : ""}
       ${loose.length ? group("link", "محصولات انبار که به سایت وصل نیستند", "اگر در سایت هستند وصلشان کنید؛ اگر فقط حضوری فروخته می‌شوند کاری لازم نیست.",
         loose.map((x) => html`<div class="list-item" style="flex-wrap:wrap">${thumb(x.product, "sm")}<div class="grow" style="min-width:160px"><div class="title small">${x.product.name}</div></div>
-          <div class="row nowrap" style="flex:1;min-width:240px"><select class="select sm" data-manual="${x.product.id}" style="flex:1">${catalogOptions(cat)}</select>
+          <div class="row nowrap" style="flex:1 1 240px;min-width:0"><select class="select sm" data-manual="${x.product.id}" style="flex:1;min-width:0;width:100%">${catalogOptions(cat)}</select>
           <button class="btn xs soft" data-act="link" data-pid="${x.product.id}">وصل</button></div></div>`)) : ""}
       ${web.length ? group("receipt", "فروش سایتی که سفارشش در سایت پیدا نشد", "دستی یا از اکسل ثبت شده‌اند؛ اگر تکراری‌اند باطلشان کنید.",
         web.map((w) => html`<a class="list-item clickable" href="#/erp/sales/${w.id}" style="text-decoration:none">
