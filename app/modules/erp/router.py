@@ -36,7 +36,7 @@ def me(user=User):
         users = [u for u in users if u["id"] == user["id"]]
     return {"user": user, "accounts": accounts, "partners": partners, "users": users,
             "channels": ledger.CHANNELS, "settings": settings, "brands": brands, "suppliers": suppliers,
-            "today": db.today(), "site": {"configured": client.configured(woo_s), "started": stock.started(woo_s),
+            "today": db.today(), "site": {"configured": client.configured(woo_s),
                                           "url": woo_s.get("url")}}
 
 
@@ -613,7 +613,6 @@ def woo_status(request: Request, user=Admin):
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'ok' THEN 1 ELSE 0 END) AS ok,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'pending' THEN 1 ELSE 0 END) AS pending,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'error' THEN 1 ELSE 0 END) AS errors,
-                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'differ' THEN 1 ELSE 0 END) AS differ,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'nocount' THEN 1 ELSE 0 END) AS nocount,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'whole' THEN 1 ELSE 0 END) AS whole,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'gone' THEN 1 ELSE 0 END) AS gone,
@@ -664,29 +663,12 @@ async def woo_sync_now(request: Request, user=Admin):
     return await stock.sync_now(_webhook_url(request))
 
 
-@router.post("/woo/start")
-async def woo_start(request: Request, user=Admin):
-    """The one-time start of stock sync: which numbers are right today, the site's or the panel's."""
-    if client.sync_lock().locked():
-        raise client.WooError("یک همگام‌سازی همین الان در حال انجام است؛ چند لحظه دیگر دوباره بزنید")
-    body = await request.json()
-    return await stock.start(body.get("side"), user, _webhook_url(request))
-
-
 @router.post("/woo/codes")
 async def woo_codes(user=Admin):
     """Write the panel's product codes (SKU) on the site where the site has none, now and for new products."""
     if client.sync_lock().locked():
         raise client.WooError("یک همگام‌سازی همین الان در حال انجام است؛ چند لحظه دیگر دوباره بزنید")
     return await stock.start_codes()
-
-
-@router.post("/woo/count")
-async def woo_count(request: Request, user=Admin):
-    """An item the site sells without counting, counted here: both get this number."""
-    body = await request.json()
-    stock.count(int(body["product_id"]), ledger._int(body.get("qty"), "تعداد"), user)
-    return {"ok": True}
 
 
 @router.post("/woo/webhooks")
@@ -718,7 +700,7 @@ def woo_catalog(user=Admin):
             """SELECT id, sku, name, stock, price, image, woo_id, woo_variation_id, woo_name, woo_url, woo_state,
                       woo_error, woo_stock, woo_synced_at, woo_manage, woo_in_stock, woo_checked_at
                FROM products WHERE active = 1 AND woo_id IS NOT NULL
-               ORDER BY CASE woo_state WHEN 'error' THEN 0 WHEN 'gone' THEN 1 WHEN 'differ' THEN 2 WHEN 'nocount' THEN 3
+               ORDER BY CASE woo_state WHEN 'error' THEN 0 WHEN 'gone' THEN 1 WHEN 'nocount' THEN 3
                         WHEN 'whole' THEN 4 WHEN 'pending' THEN 5 ELSE 6 END, name"""))
         sugg = matching.suggestions(con, catalog) if catalog.get("items") else []
     used = {(p["woo_id"], p["woo_variation_id"]) for p in linked}

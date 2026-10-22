@@ -40,8 +40,7 @@ export function stockBadge(p) {
 export const WOO_STATE = {
   ok: { cls: "ok", ico: "globe", label: "هماهنگ", tip: "موجودی اینجا و سایت یکی است" },
   pending: { cls: "info", ico: "loader-circle", label: "در حال ارسال", tip: "چند ثانیه دیگر سایت همین عدد را نشان می‌دهد" },
-  differ: { cls: "warn", ico: "scale", label: "عدد متفاوت", tip: "همگام‌سازی هنوز شروع نشده (صفحه اتصال سایت)" },
-  nocount: { cls: "", ico: "hash", label: "سایت تعداد ندارد", tip: "در سایت مدیریت موجودی خاموش است؛ در صفحه اتصال سایت یک بار بشمارید" },
+  nocount: { cls: "", ico: "hash", label: "سایت تعداد ندارد", tip: "در سایت مدیریت موجودی خاموش است؛ موجودی را اینجا اصلاح کنید تا سایت هم عدد بگیرد" },
   whole: { cls: "warn", ico: "split", label: "همه رنگ‌ها با هم", tip: "به کل محصول رنگ‌دار وصل است؛ برای همگام‌سازی به رنگ‌ها تفکیک کنید" },
   gone: { cls: "bad", ico: "circle-off", label: "در سایت نیست", tip: "این محصول در سایت پیدا نشد (حذف شده؟)" },
   error: { cls: "bad", ico: "cloud-off", label: "خطا", tip: "" },

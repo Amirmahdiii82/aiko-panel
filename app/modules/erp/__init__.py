@@ -103,7 +103,7 @@ def summary(user: dict) -> dict:
     s = client.settings()
     return {"today": {"orders": t[0], "revenue": int(t[1])}, "month": month, "month_label": label,
             "out_count": inv[0] or 0, "low_count": inv[1] or 0, "stock_value": int(inv[2] or 0),
-            "site": {"configured": client.configured(s), "started": stock.started(s),
+            "site": {"configured": client.configured(s),
                      "problems": site[0] or 0, "nocount": site[1] or 0}}
 
 

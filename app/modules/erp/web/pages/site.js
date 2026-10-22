@@ -1,9 +1,9 @@
 // Website connection. One rule (site/stock.py): the panel keeps stock, the site shows it. This page is built around
-// that: a status card, a one-time start (which numbers are right today), one list of what is left to do, and — folded
-// away — the linked products, the full history sync and the log. The site address and keys live in Settings.
-import { api, confirmBox, delegate, fa, html, icon, isOwner, jdate, num, on, parseNum, timeOf, toast } from "/static/js/kit.js";
+// that: a status card, one list of what is left to do, and — folded away — the linked products, the history import
+// and the log. The site address and keys live in Settings.
+import { api, confirmBox, delegate, fa, html, icon, isOwner, jdate, num, on, timeOf, toast } from "/static/js/kit.js";
 import { thumb } from "/static/js/kit.js";
-import { refreshMe, wooBadge } from "../erp.js";
+import { wooBadge } from "../erp.js";
 
 const STEPS = { catalog: "خواندن همه محصولات و رنگ‌ها از سایت…", orders: "خواندن همه سفارش‌های سایت…", apply: "ثبت فروش‌ها و هماهنگ کردن با داده‌های اکسل…" };
 const when = (ts) => (ts ? `${jdate(ts.slice(0, 10), { year: false })} ساعت ${timeOf(ts)}` : "");
@@ -25,18 +25,6 @@ export async function render(view, params, { setTitle }) {
   };
   delegate(view, "click", "[data-act]", async (e, el) => {
     const act = el.dataset.act;
-    if (act === "start") {
-      const site = el.dataset.side === "site";
-      if (!(await confirmBox(site
-        ? "موجودی پنل برای همه محصولات وصل‌شده با عدد فعلی سایت جایگزین شود؟ از این به بعد موجودی فقط در پنل تغییر می‌کند و سایت همان را نشان می‌دهد."
-        : "موجودی سایت برای همه محصولات وصل‌شده با عدد فعلی پنل جایگزین شود؟ از این به بعد موجودی فقط در پنل تغییر می‌کند و سایت همان را نشان می‌دهد.",
-      { okText: "شروع همگام‌سازی" }))) return;
-      busy(el, "در حال هماهنگ کردن…", async () => {
-        const r = await api("/api/erp/woo/start", { method: "POST", body: { side: el.dataset.side } });
-        await refreshMe();
-        toast(`همگام‌سازی شروع شد؛ ${fa(r.changed)} محصول هماهنگ شد`);
-      });
-    }
     if (act === "sync-now") {
       busy(el, "در حال بررسی…", async () => {
         const r = await api("/api/erp/woo/sync-now", { method: "POST" });
@@ -78,14 +66,6 @@ export async function render(view, params, { setTitle }) {
       await api("/api/erp/woo/unlink", { method: "POST", body: { product_id: Number(el.dataset.pid) } }); reload();
     }
   });
-  delegate(view, "submit", "[data-count]", async (e, form) => {
-    e.preventDefault();
-    if (form.qty.value.trim() === "") return toast("تعداد را وارد کنید", "error");
-    form.querySelector("button").disabled = true;
-    await api("/api/erp/woo/count", { method: "POST", body: { product_id: Number(form.dataset.count), qty: Math.round(parseNum(form.qty.value)) } });
-    toast("ثبت شد؛ سایت هم همین عدد را می‌گیرد");
-    setTimeout(reload, 2500);
-  });
   let timer;
   const off = on("live:erp", (ev) => {
     if (ev.type === "site_sync" || (ev.type === "product" && ev.woo_state) || (ev.type === "refresh" && ev.scope === "products")) {
@@ -103,7 +83,7 @@ function page(st, cat) {
     </div></section>`;
   }
   return html`<div class="stack">
-    ${st.settings.stock_start ? statusCard(st) : startCard(st, cat)}
+    ${statusCard(st)}
     ${todoCard(st, cat)}
     ${linkedCard(cat)}
     ${advancedCard(st)}
@@ -131,30 +111,6 @@ function statusCard(st) {
   </section>`;
 }
 
-function startCard(st, cat) {
-  const c = st.counts || {};
-  const differ = (cat.linked || []).filter((p) => p.woo_state === "differ");
-  return html`<section class="card sync-status">
-    <div class="sync-head">
-      <span class="sync-orb paused">${icon("scale")}</span>
-      <div>
-        <h2>یک انتخاب تا شروع همگام‌سازی</h2>
-        <p class="small muted mt8">از این به بعد پنل مرجع موجودی است و سایت همیشه همان عدد را نشان می‌دهد. فقط یک بار بگویید امروز کدام عدد درست‌تر است.
-          ${fa(c.ok || 0)} محصول در هر دو یکی است${differ.length ? html` و <b>${fa(differ.length)} محصول فرق دارد</b>` : ""}.</p>
-      </div>
-    </div>
-    ${differ.length ? html`<div class="table-wrap mt16" style="max-height:300px;overflow-y:auto"><table class="t">
-      <thead><tr><th>محصول</th><th class="n">پنل</th><th class="n">سایت</th></tr></thead>
-      <tbody>${differ.map((p) => html`<tr><td><div class="prod-cell">${thumb(p, "sm")}<span class="small">${p.name}</span></div></td>
-        <td class="n bold">${fa(p.stock)}</td><td class="n bold">${fa(p.woo_stock)}</td></tr>`)}</tbody></table></div>` : ""}
-    <div class="start-choice mt16">
-      <button class="choice" data-act="start" data-side="site">${icon("globe")}<b>عدد سایت درست است</b><span>موجودی پنل از روی سایت پر می‌شود</span></button>
-      <button class="choice" data-act="start" data-side="panel">${icon("package")}<b>عدد پنل درست است</b><span>موجودی سایت از روی پنل تنظیم می‌شود</span></button>
-    </div>
-    <p class="tiny muted mt12">اگر فروش حضوری و خریدها را در پنل ثبت کرده‌اید، معمولاً عدد پنل؛ اگر موجودی را بیشتر در سایت ویرایش می‌کردید، عدد سایت. هر محصولی را بعداً در «محصولات و انبار» اصلاح کنید، سایت هم درست می‌شود.</p>
-  </section>`;
-}
-
 function todoCard(st, cat) {
   const rv = st.review || {}, linked = cat.linked || [];
   const errors = linked.filter((p) => p.woo_state === "error");
@@ -175,11 +131,8 @@ function todoCard(st, cat) {
         کد هر محصول در پنل (مثل PRD-012) روی همان محصول یا رنگ در سایت نوشته می‌شود؛ از آن به بعد هر دو یک شماره دارند و محصولات تازه هم خودکار کد می‌گیرند.
         <div class="mt8"><button class="btn xs primary" data-act="codes">${icon("tag", "sm")} نوشتن کدها در سایت</button></div></div></div>` : ""}
       ${errors.length ? group("cloud-off", "ارسال به سایت ناموفق بود", "", errors.map((p) => row(p, p.woo_error, html`<button class="btn xs soft" data-act="retry" data-pid="${p.id}">دوباره</button>`))) : ""}
-      ${nocount.length ? group("hash", "در سایت تعداد ندارند", "سایت این‌ها را بدون شمارش «موجود» نشان می‌دهد. یک بار بشمارید و ثبت کنید؛ پنل و سایت هر دو همین عدد را می‌گیرند.",
-        nocount.map((p) => html`<form class="list-item count-row" data-count="${p.id}">${thumb(p, "sm")}
-          <div class="grow"><div class="title small">${p.name}</div><div class="sub">سایت: ${p.woo_in_stock ? "موجود" : "ناموجود"}</div></div>
-          <input class="input sm" name="qty" inputmode="numeric" placeholder="تعداد" value="${p.stock > 0 ? fa(p.stock) : ""}" style="width:76px" aria-label="تعداد">
-          <button class="btn xs primary" type="submit">ثبت</button></form>`)) : ""}
+      ${nocount.length ? group("hash", "در سایت تعداد ندارند", "سایت این‌ها را بدون شمارش «موجود» نشان می‌دهد. موجودی هر کدام را یک بار در انبار اصلاح کنید؛ سایت هم همان عدد را می‌گیرد.",
+        nocount.map((p) => row(p, `سایت: ${p.woo_in_stock ? "موجود" : "ناموجود"} — پنل: ${fa(p.stock)}`, html`<a class="btn xs soft" href="#/erp/products/${p.id}">اصلاح موجودی</a>`))) : ""}
       ${whole.length ? group("split", "در سایت رنگ‌بندی دارند", "به کل محصول وصل‌اند و معلوم نیست کدام رنگ فروخته شده؛ از صفحه محصول «تفکیک به رنگ‌ها» را بزنید.",
         whole.map((p) => row(p, `سایت (همه رنگ‌ها): ${p.woo_stock == null ? "؟" : fa(p.woo_stock)}`, html`<a class="btn xs soft" href="#/erp/products/${p.id}">تفکیک</a>`))) : ""}
       ${gone.length ? group("circle-off", "در سایت پیدا نشدند", "اگر حذف شده‌اند، اتصال را قطع کنید.",

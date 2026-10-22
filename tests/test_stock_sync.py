@@ -77,6 +77,7 @@ def site(owner, monkeypatch):
     async def idle(s):                      # the app's own background worker stays out of the way
         return None
     monkeypatch.setattr(stock, "_tick", idle)
+    monkeypatch.setattr(stock, "_compared", False)       # every test starts like a freshly started app
     monkeypatch.setattr(client.Woo, "request", request)
     integrations.save_woo({"url": "https://shop", "key": "ck", "secret": "cs"})
     client._save_woo({"last_order_sync": "2026-01-01T00:00:00+00:00"})
@@ -98,11 +99,9 @@ def moves(pid, kind):
         return [r[0] for r in con.execute("SELECT qty FROM stock_moves WHERE product_id = ? AND kind = ?", (pid, kind))]
 
 
-USER = {"id": None, "name": "امیر"}
-
-
-def start(side):
-    return run(stock.start(side, USER))
+def compared():
+    """What the worker does first after the app starts: one full comparison with the site."""
+    return run(stock.refresh(full=True))
 
 
 def test_a_new_site_product_arrives_with_the_sites_stock(site):
@@ -112,40 +111,21 @@ def test_a_new_site_product_arrives_with_the_sites_stock(site):
     assert p["stock"] == 5 and p["woo_state"] == "ok" and p["woo_stock"] == 5
 
 
-def test_nothing_is_sent_before_the_one_time_start(site):
+def test_nothing_is_sent_before_a_full_comparison_since_the_app_started(site):
     site.add(10, "رژ لب", 5)
-    run(stock.refresh(full=True))
+    run(stock.refresh(parents={10}))                       # a partial read is not enough
     with db.tx() as con:
         ledger.add_move(con, product(10)["id"], -2, "adjust", quiet=True)
-    run(stock.refresh(full=True))
     run(stock.push_pending())
-    assert site.writes == [] and product(10)["woo_state"] == "differ" and product(10)["stock"] == 3
-
-
-def _differing(site):
-    site.add(10, "رژ لب", 5)
-    run(stock.refresh(full=True))
-    with db.tx() as con:
-        ledger.add_move(con, product(10)["id"], 3, "adjust", quiet=True)      # here 8, on the site 5
-
-
-def test_starting_with_the_sites_numbers(site):
-    _differing(site)
-    r = start("site")
-    assert r["changed"] == 1 and product(10)["stock"] == 5 and product(10)["woo_state"] == "ok" and site.writes == []
-
-
-def test_starting_with_the_panels_numbers(site, owner):
-    _differing(site)
-    r = owner.post("/api/erp/woo/start", json={"side": "panel"}, headers=H)
-    assert r.status_code == 200, r.text
-    assert site.products[10]["stock_quantity"] == 8 and product(10)["woo_state"] == "ok"
-    assert {w["topic"] for w in site.webhooks} == set(client.WEBHOOK_TOPICS)     # instant updates set up on the way
+    assert site.writes == []
+    compared()
+    run(stock.push_pending())
+    assert site.products[10]["stock_quantity"] == 3
 
 
 def test_every_change_here_sets_the_site_to_the_panels_number(site):
     site.add(10, "رژ لب", 5)
-    start("site")
+    compared()
     pid = product(10)["id"]
     with db.tx() as con:
         ledger.create_sale(con, {"channel": "in_person", "items": [{"product_id": pid, "qty": 2, "unit_price": 1}]},
@@ -160,7 +140,7 @@ def test_every_change_here_sets_the_site_to_the_panels_number(site):
 
 def test_a_website_order_is_counted_once(site):
     site.add(10, "رژ لب", 5)
-    start("site")
+    compared()
     site.order(501, 10, 1)                                 # the site took it out of stock itself
     run(stock.refresh(full=True))
     run(stock.push_pending())
@@ -170,7 +150,7 @@ def test_a_website_order_is_counted_once(site):
 
 def test_stock_typed_by_hand_on_the_site_goes_back_to_the_panels_number(site):
     site.add(10, "رژ لب", 5)
-    start("site")
+    compared()
     site.products[10]["stock_quantity"] = 9                # edited in the WordPress admin
     report = run(stock.refresh(full=True))
     assert len(report["corrected"]) == 1
@@ -182,16 +162,16 @@ def test_stock_typed_by_hand_on_the_site_goes_back_to_the_panels_number(site):
 
 def test_an_item_the_site_does_not_count_is_left_alone_until_counted_here(site, owner):
     site.add(20, "براش", manage=False)
-    start("panel")
+    compared()
     p = product(20)
     assert p["woo_state"] == "nocount" and site.writes == []
     with db.tx() as con:
-        ledger.add_move(con, p["id"], 1, "adjust", quiet=True)          # a change alone does not switch counting on
+        ledger.add_move(con, p["id"], 1, "sale_void", quiet=True)       # a sale or return alone does not switch counting on
     run(stock.push_pending())
     run(stock.refresh(parents={20}))
     assert site.writes == [] and product(20)["woo_state"] == "nocount"
-    r = owner.post("/api/erp/woo/count", json={"product_id": p["id"], "qty": 7}, headers=H)
-    assert r.status_code == 200, r.text
+    r = owner.post(f"/api/erp/products/{p['id']}/adjust", json={"set_to": 7, "reason": "شمارش"}, headers=H)
+    assert r.status_code == 200, r.text                    # a number set by a person: the site gets it
     run(stock.push_pending())
     assert site.products[20]["manage_stock"] is True and site.products[20]["stock_quantity"] == 7
     assert product(20)["stock"] == 7 and product(20)["woo_state"] == "ok"
@@ -200,7 +180,7 @@ def test_an_item_the_site_does_not_count_is_left_alone_until_counted_here(site, 
 def test_a_product_deleted_on_the_site_is_marked_and_never_pushed(site):
     site.add(10, "رژ لب", 5)
     site.add(11, "ریمل", 2)
-    start("site")
+    compared()
     del site.products[10]
     run(stock.refresh(full=True))
     assert product(10)["woo_state"] == "gone"
@@ -224,7 +204,7 @@ def test_a_product_linked_as_a_whole_to_one_with_colors_is_read_only(site):
     with db.tx() as con:
         pid = ledger.create_product(con, {"name": "رژ مایع قدیمی", "stock": 9}, None, quiet=True)
         matching.link_product(con, pid, 30, None, None)
-    start("panel")
+    compared()
     p = product(30)
     assert p["id"] == pid and p["woo_state"] == "whole" and p["woo_stock"] == 6 and p["stock"] == 9
     with db.tx() as con:
@@ -236,7 +216,7 @@ def test_a_product_linked_as_a_whole_to_one_with_colors_is_read_only(site):
 
 def test_a_new_link_is_read_before_anything_is_sent(site):
     site.add(20, "براش", manage=False)
-    start("site")
+    compared()
     stock._touched.clear()
     with db.tx() as con:
         pid = ledger.create_product(con, {"name": "براش قدیمی", "stock": 0}, None, quiet=True)
@@ -260,6 +240,7 @@ def test_sync_now_from_the_site_page(site, owner):
     r = owner.post("/api/erp/woo/sync-now", headers=H)
     assert r.status_code == 200, r.text
     assert r.json()["checked"] == 1
+    assert {w["topic"] for w in site.webhooks} == set(client.WEBHOOK_TOPICS)     # instant updates set up on the way
 
 
 def test_a_product_webhook_queues_that_product_for_a_reread(site, owner):
@@ -301,3 +282,50 @@ def test_the_panels_codes_are_written_where_the_site_has_none(site, owner):
     assert r.json() == {"written": 2, "errors": []}
     assert site.products[10]["sku"] == product(10)["sku"] and site.variations[30][31]["sku"] == product(30, 31)["sku"]
     assert stock.missing_codes() == [] and client.settings()["write_sku"] is True
+
+
+def _count_file(tmp_path, monkeypatch, items, panel_only=()):
+    import json as _json
+    path = tmp_path / "stock_count_test.json"
+    path.write_text(_json.dumps({"label": "شمارش آزمایشی", "date": "2026-10-22", "panel_only": list(panel_only),
+                                 "items": [{"woo_id": w, "variation_id": v, "qty": q, "name": f"{w}/{v}"} for w, v, q in items]},
+                                ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(stock, "COUNT_FILES", [path])
+
+
+def test_a_hand_count_is_applied_once_to_the_panel_and_sent_to_the_site(site, tmp_path, monkeypatch):
+    site.add(10, "رژ لب", 5)
+    site.add(20, "براش", manage=False)
+    site.add(30, "رژ مایع", manage=False, type_="variable")
+    site.add_color(30, 31, "قرمز", 4)
+    site.add_color(30, 32, "صورتی", 2)
+    with db.tx() as con:
+        whole = ledger.create_product(con, {"name": "رژ مایع قدیمی", "stock": 9}, None, quiet=True)
+        matching.link_product(con, whole, 30, None, None)
+    _count_file(tmp_path, monkeypatch, [(10, None, 7), (20, None, 3), (30, 31, 2), (30, 32, 0)],
+                [{"name": "مداد چشم زرشکی گلدن رز", "qty": 3}])
+    report = run(stock.refresh(full=True))
+    assert report["count"]["missing"] == [] and report["count"]["split"] == 1
+    assert product(10)["stock"] == 7 and product(20)["stock"] == 3
+    assert product(30, 31)["stock"] == 2 and product(30, 32)["stock"] == 0
+    with db.read() as con:
+        assert con.execute("SELECT active FROM products WHERE id = ?", (whole,)).fetchone()[0] == 0
+        assert con.execute("SELECT stock FROM products WHERE name = 'مداد چشم زرشکی گلدن رز'").fetchone()[0] == 3
+    assert stock._compared
+    run(stock.push_pending())
+    assert site.products[10]["stock_quantity"] == 7
+    assert site.products[20]["manage_stock"] is True and site.products[20]["stock_quantity"] == 3
+    assert site.variations[30][31]["stock_quantity"] == 2 and site.variations[30][32]["stock_quantity"] == 0
+    with db.tx() as con:                                   # a sale after the count is not undone by it
+        ledger.create_sale(con, {"channel": "in_person", "items": [{"product_id": product(10)["id"], "qty": 1, "unit_price": 1}]},
+                           None, quiet=True)
+    run(stock.refresh(full=True))
+    run(stock.push_pending())
+    assert product(10)["stock"] == 6 and site.products[10]["stock_quantity"] == 6
+
+
+def test_a_hand_count_for_another_shop_is_never_applied(site, tmp_path, monkeypatch):
+    site.add(10, "رژ لب", 5)
+    _count_file(tmp_path, monkeypatch, [(999, None, 1), (998, None, 2)], [{"name": "چیزی", "qty": 1}])
+    report = run(stock.refresh(full=True))
+    assert report["count"] is None and product(10)["stock"] == 5

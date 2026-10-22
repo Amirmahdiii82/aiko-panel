@@ -222,7 +222,7 @@ def dashboard(con, user: dict) -> dict:
         "inventory": inventory_stats(con),
         "money": ledger.summary_money(con),
         "partners": ledger.partner_positions(con),
-        "site": {"configured": client.configured(woo), "started": bool(woo.get("stock_start")),
+        "site": {"configured": client.configured(woo),
                  "errors": sync_errors, "pending": pending, "unlinked": unlinked, "nocount": nocount,
                  "last_order_sync": woo.get("last_order_sync")},
         "recent": recent,

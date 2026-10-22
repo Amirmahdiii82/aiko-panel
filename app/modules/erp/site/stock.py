@@ -4,14 +4,17 @@
 * Website orders come here as sales, so the panel's number already includes them.
 * Product details live on the site: a new product or color, a name, image or price change made there comes here.
 * Stock typed by hand in the WordPress admin is set back to the panel's number every few minutes, and reported.
-* Getting started, once: which numbers are right today — the site's (the panel takes them) or the panel's.
-* Items the site sells without counting are left alone until counted here; a product linked as a whole to a site
-  product with colors is not sent until it is split.
+* A full hand count (data/stock_count_*.json) is applied once, at the first full comparison after it ships; nothing is
+  sent to the site before a full comparison has run since the app started, so old numbers never go out first.
+* Items the site sells without counting are left alone until their stock is set here (a stock adjustment or a hand
+  count); a product linked as a whole to a site product with colors is not sent until it is split.
 """
 import asyncio
+import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from .. import db, ledger, notify
 from . import client, matching, orders
@@ -37,8 +40,7 @@ _touched: set[int] = set()     # site products to read again soon (a webhook, a 
 _timers = {"check": 0.0, "full": 0.0, "pause": 0.0}
 
 
-def started(s: dict | None = None) -> bool:
-    return bool((s or client.settings()).get("stock_start"))
+_compared = False      # a full comparison (and any hand count) has run since the app started: sending is safe
 
 
 def wake() -> None:
@@ -83,15 +85,16 @@ def _details(con, p: dict, e: dict) -> None:
 
 def reconcile(con, entries: list[dict], *, parents=None, full: bool = False) -> dict:
     """Compare linked products whose site product is in `entries` (or was asked for in `parents`; with `full`, every
-    linked product) with the site. New site products get a product here; products gone from the site are marked.
-    Once sync has started, a site number that differs from the panel's is queued to be set back."""
-    report = {"checked": 0, "corrected": [], "created": 0, "gone": 0, "differ": 0}
-    live = started()
+    linked product) with the site. New site products get a product here; products gone from the site are marked; a
+    site number that differs from the panel's is queued to be set back."""
+    report = {"checked": 0, "corrected": [], "created": 0, "gone": 0, "count": None}
     by_key = {(e["woo_id"], e["variation_id"]): e for e in entries}
     read = {e["woo_id"] for e in entries} | {int(x) for x in parents or ()}
     if entries:
         report["created"] = matching.create_missing(con, {"items": entries})
         matching.settle_openings(con, entries)
+    if full:                                    # a hand count first: it is what the site is compared with
+        report["count"] = apply_count(con, entries)
     for p in db.rows(con.execute("SELECT * FROM products WHERE active = 1 AND woo_id IS NOT NULL ORDER BY id")):
         if not full and p["woo_id"] not in read:
             continue
@@ -108,16 +111,14 @@ def reconcile(con, entries: list[dict], *, parents=None, full: bool = False) -> 
             site = sum(x["stock"] for x in colors) if colors and all(_counts(x) for x in colors) else None
             state = "whole"
         elif not _counts(e):
-            site, state = None, "pending" if live and p["woo_counted"] else "nocount"
-        elif live and p["woo_state"] == "pending":
-            state = "pending"                       # about to be sent anyway
-        elif site != max(0, p["stock"]):
-            if live:
-                state = "pending"
-                report["corrected"].append(f"{p['name']} (سایت {ledger.fa(site)} ← پنل {ledger.fa(max(0, p['stock']))})")
-            else:
-                state = "differ"
-                report["differ"] += 1
+            site, state = None, "pending" if p["woo_counted"] else "nocount"
+        elif site == max(0, p["stock"]):
+            state = "ok"                            # already the same: nothing to send
+        elif p["woo_state"] == "pending":
+            state = "pending"                       # a change here (or the hand count) about to be sent
+        else:
+            state = "pending"
+            report["corrected"].append(f"{p['name']} (سایت {ledger.fa(site)} ← پنل {ledger.fa(max(0, p['stock']))})")
         con.execute("UPDATE products SET woo_state = ?, woo_stock = ?, woo_error = NULL WHERE id = ?", (state, site, p["id"]))
     if report["corrected"]:
         names = "، ".join(report["corrected"][:5]) + ("…" if len(report["corrected"]) > 5 else "")
@@ -132,10 +133,79 @@ def reconcile(con, entries: list[dict], *, parents=None, full: bool = False) -> 
     return report
 
 
+# ---------------------------------------------------------------- a hand count shipped with the panel
+
+COUNT_FILES = sorted((Path(__file__).resolve().parents[1] / "data").glob("stock_count_*.json"))
+
+
+def apply_count(con, entries: list[dict]) -> dict | None:
+    """A full hand count of the shop (data/stock_count_*.json: site product/color ids → counted number, plus items
+    only kept here), applied once: the panel takes the counted numbers and, being the one place stock is kept, sends
+    them to the site. Only on the shop it was made for — most of its site ids must be in this catalogue — so a test or
+    an empty database never gets it. A product linked as a whole to one with colors is split into its colors first."""
+    result = None
+    for path in COUNT_FILES:
+        plan = json.loads(path.read_text(encoding="utf-8"))
+        done = db.get_setting("stock_counts_applied", [], con) or []
+        keys = {(e["woo_id"], e["variation_id"]) for e in entries}
+        wanted = [(i["woo_id"], i["variation_id"]) for i in plan["items"]]
+        if plan["label"] in done or not wanted or sum(k in keys for k in wanted) < 0.8 * len(wanted):
+            continue
+        by_key = {(e["woo_id"], e["variation_id"]): e for e in entries}
+        system = {"id": None, "name": plan["label"]}
+        split = changed = same = 0
+        for parent in sorted({i["woo_id"] for i in plan["items"] if i["variation_id"]}):
+            whole = db.one(con.execute("""SELECT id FROM products WHERE active = 1 AND woo_id = ?
+                                          AND woo_variation_id IS NULL""", (parent,)))
+            colors = [i for i in plan["items"] if i["woo_id"] == parent and i["variation_id"]
+                      and (parent, i["variation_id"]) in by_key]
+            if whole and colors:
+                ledger.split_product(con, whole["id"], [{
+                    "name": by_key[(parent, i["variation_id"])]["name"], "woo_variation_id": i["variation_id"],
+                    "woo_name": by_key[(parent, i["variation_id"])]["name"], "image": by_key[(parent, i["variation_id"])].get("image"),
+                    "price": by_key[(parent, i["variation_id"])].get("price"), "qty": i["qty"]} for i in colors], system)
+                split += 1
+        missing = []
+        for it in plan["items"]:
+            p = db.one(con.execute("""SELECT * FROM products WHERE active = 1 AND woo_id = ?
+                                      AND IFNULL(woo_variation_id, 0) = ?""", (it["woo_id"], it["variation_id"] or 0)))
+            if not p:
+                missing.append(it["name"])
+                continue
+            delta = it["qty"] - p["stock"]
+            if delta:
+                changed += 1
+                ledger.add_move(con, p["id"], delta, "adjust", unit_cost=p["avg_cost"] if delta > 0 else None,
+                                note=plan["label"], quiet=True)
+            else:
+                same += 1
+            con.execute("UPDATE products SET woo_counted = 1, woo_state = 'pending' WHERE id = ?", (p["id"],))
+        for it in plan.get("panel_only") or []:
+            name = matching.normalize(it["name"])
+            p = next((r for r in db.rows(con.execute("SELECT * FROM products WHERE active = 1 AND woo_id IS NULL"))
+                      if matching.normalize(r["name"]) == name), None)
+            if p and p["stock"] != it["qty"]:
+                ledger.add_move(con, p["id"], it["qty"] - p["stock"], "adjust", note=plan["label"], quiet=True)
+            elif not p:
+                ledger.create_product(con, {"name": it["name"].strip(), "stock": it["qty"]}, None, quiet=True)
+            changed += 1
+        db.set_setting("stock_counts_applied", [*done, plan["label"]], con)
+        notify.activity(con, "stock_count", f"📋 {plan['label']} ثبت شد",
+                        f"{ledger.fa(len(plan['items']))} کالای سایت و {ledger.fa(len(plan.get('panel_only') or []))} کالای انبار: "
+                        f"{ledger.fa(changed)} عدد عوض شد، {ledger.fa(same)} همان بود"
+                        + (f"، {ledger.fa(split)} محصول به رنگ‌ها تفکیک شد" if split else "")
+                        + ". سایت هم همین اعداد را می‌گیرد."
+                        + (f" پیدا نشد: {'، '.join(missing[:5])}" if missing else ""),
+                        level="success" if not missing else "warning", link="#/erp/site", notify=True)
+        result = {"label": plan["label"], "changed": changed, "same": same, "split": split, "missing": missing}
+    return result
+
+
 async def refresh(*, full: bool = False, parents=None, changed_since: str | None = None) -> dict:
     """Read the site (all products, the given ones, or those changed since a moment) and compare. Website orders are
     read just before and just after, so a sale made meanwhile is already here when numbers are compared.
     The caller holds client.sync_lock()."""
+    global _compared
     started_at = datetime.now(timezone.utc).replace(microsecond=0)
     await orders.pull_orders()
     async with client.Woo() as site:
@@ -155,6 +225,8 @@ async def refresh(*, full: bool = False, parents=None, changed_since: str | None
         with db.tx() as con:
             return reconcile(con, entries, parents=parents, full=full)
     report = await asyncio.to_thread(apply)
+    if full:
+        _compared = True
     client._save_woo({"stock_checked_at": started_at.isoformat()})
     if report["corrected"] or report["created"] or report["gone"]:
         client.wlog("stock_check", True, f"{ledger.fa(report['checked'])} محصول بررسی شد؛ {ledger.fa(len(report['corrected']))} "
@@ -165,7 +237,7 @@ async def refresh(*, full: bool = False, parents=None, changed_since: str | None
 async def push_pending() -> dict:
     """Set the site to the panel's number for every product waiting to be sent."""
     s = client.settings()
-    if not client.configured(s) or not started(s):
+    if not client.configured(s) or not _compared:
         return {"pushed": 0, "errors": 0}
     with db.read() as con:
         if not con.execute("""SELECT 1 FROM products WHERE active = 1 AND woo_id IS NOT NULL
@@ -184,13 +256,13 @@ async def push_pending() -> dict:
     groups: dict[str, list[dict]] = {}
     for p in send:
         groups.setdefault(f"products/{p['woo_id']}/variations/batch" if p["woo_variation_id"] else "products/batch", []).append(p)
-    async with client.Woo(s) as site:
+    async with client.Woo(s) as woo:
         for path, items in groups.items():
             for chunk in (items[i:i + 100] for i in range(0, len(items), 100)):
                 payload = {"update": [{"id": p["woo_variation_id"] or p["woo_id"], "manage_stock": True,
                                        "stock_quantity": max(0, p["stock"])} for p in chunk]}
                 try:
-                    data, _ = await site.request("POST", path, json=payload)
+                    data, _ = await woo.request("POST", path, json=payload)
                     results = {r.get("id"): r for r in (data.get("update") or [])}
                 except client.WooError as exc:
                     results = {p["woo_variation_id"] or p["woo_id"]: {"error": {"message": str(exc)}} for p in chunk}
@@ -223,57 +295,11 @@ async def push_pending() -> dict:
 
 async def _webhooks(url: str | None) -> None:
     """Instant orders and product edits; optional, the periodic check keeps everything in step anyway."""
-    if url and started() and not client.settings().get("webhooks_at"):
+    if url and not client.settings().get("webhooks_at"):
         try:
             await client.ensure_webhooks(url)
         except client.WooError as exc:
             client.wlog("webhooks", False, str(exc))
-
-
-async def start(side: str, user: dict, webhook_url: str | None = None) -> dict:
-    """The one-time start: "site" — today's site numbers are right, the panel takes them; "panel" — the panel's numbers
-    are right, the site takes them. Products the site does not count are left as they are."""
-    if side not in ("site", "panel"):
-        raise ledger.LedgerError("کدام عدد درست است؟")
-    async with client.sync_lock():
-        await refresh(full=True)
-        changed = 0
-        with db.tx() as con:
-            for p in db.rows(con.execute("""SELECT * FROM products WHERE active = 1 AND woo_id IS NOT NULL
-                                            AND woo_state IN ('ok', 'differ')""")):
-                if p["woo_stock"] == max(0, p["stock"]):
-                    continue
-                changed += 1
-                if side == "site":
-                    ledger.add_move(con, p["id"], p["woo_stock"] - p["stock"], "site_sync", ref_type="site", quiet=True,
-                                    note="شروع همگام‌سازی: عدد سایت", user_id=user["id"])
-                    con.execute("UPDATE products SET woo_state = 'ok' WHERE id = ?", (p["id"],))
-                else:
-                    con.execute("UPDATE products SET woo_state = 'pending' WHERE id = ?", (p["id"],))
-            s = db.get_setting("woo", {}, con) or {}
-            s.update(stock_start=side, stock_started_at=db.now(), stock_started_by=user["name"])
-            db.set_setting("woo", s, con)
-            notify.activity(con, "site_stock", "همگام‌سازی موجودی با سایت شروع شد",
-                            f"{'عدد سایت' if side == 'site' else 'عدد پنل'} درست بود؛ {ledger.fa(changed)} محصول هماهنگ شد. "
-                            f"از این به بعد موجودی را فقط در پنل تغییر دهید. — {user['name']}",
-                            user_id=user["id"], level="success", link="#/erp/site")
-            notify.publish_after(con, {"type": "refresh", "scope": "products"})
-        pushed = await push_pending()
-    await _webhooks(webhook_url)
-    return {"changed": changed, **pushed}
-
-
-def count(product_id: int, qty: int, user: dict) -> None:
-    """An item the site sells without counting was counted here: the panel and the site both get this number."""
-    with db.tx() as con:
-        p = ledger.get_product(con, product_id)
-        if not p["woo_id"]:
-            raise ledger.LedgerError("این محصول به سایت وصل نیست")
-        if p["woo_state"] == "whole":
-            raise ledger.LedgerError("این محصول در سایت رنگ‌بندی دارد؛ اول آن را به رنگ‌ها تفکیک کنید")
-        ledger.adjust_stock(con, product_id, set_to=qty, reason="شمارش برای سایت", user=user)
-        con.execute("UPDATE products SET woo_counted = 1, woo_state = 'pending' WHERE id = ?", (product_id,))
-    wake()
 
 
 async def sync_now(webhook_url: str | None = None) -> dict:

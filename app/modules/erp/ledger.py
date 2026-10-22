@@ -159,9 +159,7 @@ def add_move(con, product_id: int, qty: int, kind: str, *, unit_cost: float | No
 def _site_note(con, p: dict) -> str:
     if p["woo_id"] is None:
         return "این محصول به سایت وصل نیست؛ اگر در سایت هست، دستی ناموجودش کنید."
-    if (db.get_setting("woo", {}, con) or {}).get("stock_start"):
-        return "در سایت هم خودکار به‌روز می‌شود."
-    return "همگام‌سازی موجودی با سایت هنوز شروع نشده؛ صفحه «اتصال سایت» را باز کنید."
+    return "در سایت هم خودکار به‌روز می‌شود."
 
 
 def _stock_alerts(con, p: dict, before: int, after: int, user_id: int | None) -> None:
@@ -201,6 +199,8 @@ def adjust_stock(con, product_id: int, *, set_to: int | None = None, delta: int 
     note = reason.strip() or ("ناموجود کردن" if set_to == 0 else "اصلاح موجودی")
     unit_cost = p["avg_cost"] if qty > 0 else None
     result = add_move(con, product_id, qty, "adjust", unit_cost=unit_cost, note=note, user_id=user["id"])
+    if p["woo_id"]:          # a number set by a person: the site gets it even if it was not counting this item
+        con.execute("UPDATE products SET woo_counted = 1 WHERE id = ?", (product_id,))
     sign = "+" if qty > 0 else "−"
     notify.activity(con, "adjust", f"اصلاح موجودی «{p['name']}»",
                     f"{sign}{fa(abs(qty))} ← موجودی جدید {fa(result['stock'])} ({note}) توسط {user['name']}",

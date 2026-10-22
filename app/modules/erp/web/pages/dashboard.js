@@ -1,7 +1,7 @@
 // Home: today at a glance, what needs attention, partner balance, live activity.
 import { $, api, compact, delegate, fa, html, icon, jdate, num, on, pct, state, toman } from "/static/js/kit.js";
 import { barChart } from "/static/js/kit.js";
-import { avatar, barList, delta, emptyState, feedItem, kpi, moneyKpi, thumb } from "/static/js/kit.js";
+import { avatar, barList, delta, emptyState, feedItem, moneyKpi, thumb } from "/static/js/kit.js";
 import { openExpenseForm } from "./expenses.js";
 import { openSettlement } from "./money.js";
 import { CHANNEL_ICON, erp, isAdmin, stockBadge } from "../erp.js";
@@ -53,7 +53,6 @@ function adminHome(d) {
   if (inv.low_count) alerts.push({ ico: "triangle-alert", cls: "warn", text: `${fa(inv.low_count)} محصول رو به اتمام`, link: "#/erp/products?f=low" });
   if (site.errors) alerts.push({ ico: "cloud-off", cls: "bad", text: `${fa(site.errors)} خطای همگام‌سازی سایت`, link: "#/erp/site" });
   if (!site.configured) alerts.push({ ico: "globe", cls: "info", text: "سایت هنوز وصل نشده — موجودی سایت خودکار به‌روز نمی‌شود", link: "#/erp/site" });
-  else if (!site.started) alerts.push({ ico: "globe", cls: "warn", text: "همگام‌سازی موجودی با سایت هنوز شروع نشده — یک انتخاب لازم است", link: "#/erp/site" });
   if (site.nocount) alerts.push({ ico: "hash", cls: "info", text: `${fa(site.nocount)} محصول در سایت تعداد موجودی ندارد`, link: "#/erp/site" });
   if (site.unlinked && site.configured) alerts.push({ ico: "unlink", cls: "info", text: `${fa(site.unlinked)} محصول به سایت وصل نیست`, link: "#/erp/site" });
   if (money.receivable) alerts.push({ ico: "clock", cls: "warn", text: `${toman(money.receivable)} فروش پرداخت‌نشده`, link: "#/erp/sales?unpaid=1" });
