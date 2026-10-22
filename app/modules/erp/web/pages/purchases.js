@@ -1,8 +1,8 @@
-// Purchases (stock in): list and the purchase form. Shipping is spread over items to get the landed cost.
-import { $, api, compact, confirmBox, debounce, delegate, fa, html, icon, jdate, num, on, parseNum, sheet, toast, toman } from "/static/js/kit.js";
-import { bindChoices, bindDates, bindMoney, bindUploads, dateField, emptyState, formData, moneyField, receiptLink, selectOptions, thumb, uploadField } from "/static/js/kit.js";
+// Purchases (stock in): the list and each purchase. New purchases are entered on the quick-entry page (sell.js, «خرید کالا»).
+import { $, api, confirmBox, debounce, delegate, fa, html, icon, jdate, num, on, sheet, toast, toman } from "/static/js/kit.js";
+import { emptyState, receiptLink, thumb } from "/static/js/kit.js";
 import { periodChips, periodRange } from "/static/js/kit.js";
-import { accountChoice, erp, refreshMe } from "../erp.js";
+import { erp } from "../erp.js";
 
 const norm = (s) => String(s || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/‌/g, " ").toLowerCase();
 
@@ -27,7 +27,7 @@ export async function render(view, params, { setTitle }) {
     const done = rows.filter((x) => x.status === "done");
     const el = $("#list", view);
     if (!rows.length) {
-      el.innerHTML = String(emptyState("truck", "خریدی در این بازه نیست", "کالایی که می‌خرید را اینجا ثبت کنید تا به انبار اضافه شود."));
+      el.innerHTML = String(emptyState("truck", "خریدی در این بازه نیست", "کالایی که می‌خرید را با «ثبت خرید» وارد کنید تا به انبار اضافه شود."));
       return;
     }
     el.innerHTML = String(html`<div class="card-head"><h3>${fa(done.length)} خرید</h3>
@@ -46,12 +46,12 @@ export async function render(view, params, { setTitle }) {
   $("#q", view).addEventListener("input", debounce((e) => { f.q = e.target.value; load(); }, 300));
   delegate(view, "click", "[data-period]", (e, el) => { f.period = el.dataset.period; load(); });
   delegate(view, "click", "[data-open]", (e, el) => { if (!e.target.closest("a")) location.hash = `#/erp/purchases/${el.dataset.open}`; });
-  $("#new", view).onclick = () => { location.hash = "#/erp/purchases/new"; };
+  $("#new", view).onclick = () => { location.hash = "#/erp/sell?mode=buy"; };
 
   let drawer = null;
   const openFromParams = (p) => {
     if (drawer) { drawer.close(); drawer = null; }
-    if (p[0] === "new") drawer = openPurchaseForm(load);
+    if (p[0] === "new") location.replace("#/erp/sell?mode=buy");     // purchases are entered on the quick-entry page
     else if (p[0]) drawer = openPurchase(Number(p[0]), load);
   };
   openFromParams(params);
@@ -98,143 +98,5 @@ function openPurchase(id, changed) {
     }
   };
   load();
-  return s;
-}
-
-export function openPurchaseForm(done) {
-  let products = [];
-  const lines = [{ key: 1 }];
-  let nextKey = 2;
-  const s = sheet({
-    title: "ثبت خرید کالا",
-    size: "xwide",
-    onClose: () => { if (location.hash.startsWith("#/erp/purchases/new")) history.replaceState(null, "", "#/erp/purchases"); },
-    body: html`<div class="stack" id="pform">
-      <div class="form-grid">
-        ${dateField({ name: "date", label: "تاریخ خرید", value: erp.me.today })}
-        <div class="field"><label>تأمین‌کننده / فروشنده</label><input class="input" name="supplier" list="sup-list" placeholder="مثلاً بازار، دیجی‌کالا، …">
-          <datalist id="sup-list">${erp.me.suppliers.map((x) => html`<option value="${x}">`)}</datalist></div>
-      </div>
-      <div><div class="row between"><h3>${icon("package", "sm")} کالاها</h3><button type="button" class="btn sm soft" id="add-line">${icon("plus", "sm")} ردیف جدید</button></div>
-        <div class="stack s8 mt12" id="lines"></div></div>
-      <div class="form-grid">
-        ${moneyField({ name: "shipping", label: "هزینه حمل / پیک / سایر (بین کالاها تقسیم می‌شود)", value: "" })}
-        <div class="field"><label>جمع</label><div class="inset row between"><span class="muted" id="sum-sub"></span><b class="num" id="sum-total" style="font-size:18px"></b></div></div>
-        <div class="field full"><label>پول از کدام حساب پرداخت شد؟</label>${accountChoice("account_id", erp.me.user.account_id)}</div>
-        ${uploadField({ name: "receipt" })}
-        <div class="field"><label>یادداشت</label><textarea class="textarea" name="note" rows="2"></textarea></div>
-      </div>
-    </div>`,
-    foot: html`<button class="btn primary lg" id="save">${icon("check")} ثبت خرید و افزودن به انبار</button><button class="btn ghost" data-close>انصراف</button>`,
-  });
-  const root = s.root;
-  bindMoney(root);
-  bindDates(root);
-  bindChoices(root);
-  bindUploads(root);
-  api("/api/erp/products").then((p) => { products = p; });
-
-  const lineHtml = (l) => html`<div class="inset" data-line="${l.key}" style="padding:12px">
-    <div class="row nowrap" style="align-items:flex-start;gap:10px">
-      <div style="flex:2;min-width:0;position:relative">
-        <input class="input sm" data-pick="${l.key}" placeholder="نام کالا را بنویسید…" value="${l.label || ""}" autocomplete="off">
-        <div class="pick-list hidden" data-list="${l.key}"></div>
-        ${l.isNew ? html`<div class="form-grid mt8" style="grid-template-columns:1fr 1fr 1fr">
-          <input class="input sm" data-new-brand="${l.key}" placeholder="برند" value="${l.brand || ""}">
-          <select class="select sm" data-new-cat="${l.key}">${selectOptions((erp.me.settings.product_categories || []).map((c) => ({ value: c, label: c })), l.category, "دسته")}</select>
-          <input class="input sm money" data-new-price="${l.key}" data-money placeholder="قیمت فروش" value="${l.price ? num(l.price) : ""}" inputmode="numeric">
-        </div><div class="tiny orchid-ink mt8" style="color:var(--orchid-ink)">${icon("sparkles", "sm")} محصول جدید ساخته می‌شود</div>` : ""}
-      </div>
-      <div style="width:84px"><input class="input sm" data-qty="${l.key}" placeholder="تعداد" value="${l.qty ? fa(l.qty) : ""}" inputmode="numeric"></div>
-      <div style="flex:1;min-width:110px"><input class="input sm money" data-cost="${l.key}" data-money placeholder="قیمت خرید هر عدد" value="${l.unit_cost ? num(l.unit_cost) : ""}" inputmode="numeric"></div>
-      <button type="button" class="btn icon xs ghost" data-remove="${l.key}" aria-label="حذف ردیف">${icon("x", "sm")}</button>
-    </div>
-  </div>`;
-  const drawLines = () => {
-    root.querySelector("#lines").innerHTML = String(html`${lines.map(lineHtml)}`);
-    updateSum();
-  };
-  const updateSum = () => {
-    const sub = lines.reduce((t, l) => t + (l.qty || 0) * (l.unit_cost || 0), 0);
-    const ship = parseNum(root.querySelector("[name=shipping]").value);
-    root.querySelector("#sum-sub").textContent = `${fa(lines.reduce((t, l) => t + (l.qty || 0), 0))} عدد`;
-    root.querySelector("#sum-total").textContent = toman(sub + ship);
-  };
-  drawLines();
-
-  const style = document.createElement("style");
-  style.textContent = `.pick-list{position:absolute;z-index:5;top:44px;inset-inline:0;max-height:280px;overflow:auto;background:var(--clay);border-radius:18px;box-shadow:var(--clay-shadow-lg);padding:6px}
-    .pick-list button{display:flex;gap:10px;align-items:center;width:100%;border:0;background:transparent;padding:8px;border-radius:12px;text-align:start}
-    .pick-list button:hover,.pick-list button.act{background:var(--primary-soft)}`;
-  root.appendChild(style);
-
-  const lineOf = (key) => lines.find((l) => l.key === Number(key));
-  const showList = (key, text) => {
-    const box = root.querySelector(`[data-list="${key}"]`);
-    const terms = norm(text).split(/\s+/).filter(Boolean);
-    const matches = products.filter((p) => !terms.length || terms.every((t) => norm(`${p.name} ${p.brand || ""} ${p.sku || ""}`).includes(t))).slice(0, 8);
-    box.innerHTML = String(html`${matches.map((p) => html`<button type="button" data-choose="${key}" data-pid="${p.id}">${thumb(p, "sm")}
-        <span class="grow small" style="flex:1">${p.name}<br><span class="muted tiny">موجودی ${fa(p.stock)}، آخرین قیمت خرید ${num(p.avg_cost)}</span></span></button>`)}
-      ${text.trim() ? html`<button type="button" data-choose="${key}" data-new="1"><span class="thumb sm">${icon("package-plus", "sm")}</span>
-        <span class="small">محصول جدید: <b>«${text.trim()}»</b></span></button>` : ""}`);
-    box.classList.toggle("hidden", !matches.length && !text.trim());
-  };
-  delegate(root, "input", "[data-pick]", (e, el) => {
-    const l = lineOf(el.dataset.pick);
-    l.label = el.value;
-    if (l.product_id) { l.product_id = null; }
-    showList(el.dataset.pick, el.value);
-  });
-  delegate(root, "focusin", "[data-pick]", (e, el) => showList(el.dataset.pick, el.value));
-  delegate(root, "mousedown", "[data-choose]", (e, b) => {
-    e.preventDefault();
-    const l = lineOf(b.dataset.choose);
-    if (b.dataset.new) {
-      Object.assign(l, { isNew: true, product_id: null });
-    } else {
-      const p = products.find((x) => x.id === Number(b.dataset.pid));
-      Object.assign(l, { isNew: false, product_id: p.id, label: p.name, unit_cost: l.unit_cost || Math.round(p.avg_cost) || null });
-    }
-    drawLines();
-    root.querySelector(`[data-qty="${l.key}"]`)?.focus();
-  });
-  root.addEventListener("focusout", (e) => {
-    if (e.target.matches("[data-pick]")) setTimeout(() => root.querySelector(`[data-list="${e.target.dataset.pick}"]`)?.classList.add("hidden"), 150);
-  });
-  delegate(root, "input", "[data-qty]", (e, el) => { lineOf(el.dataset.qty).qty = Math.round(parseNum(el.value)) || 0; updateSum(); });
-  delegate(root, "input", "[data-cost]", (e, el) => { lineOf(el.dataset.cost).unit_cost = parseNum(el.value) || 0; updateSum(); });
-  delegate(root, "input", "[data-new-brand]", (e, el) => { lineOf(el.dataset.newBrand).brand = el.value; });
-  delegate(root, "change", "[data-new-cat]", (e, el) => { lineOf(el.dataset.newCat).category = el.value; });
-  delegate(root, "input", "[data-new-price]", (e, el) => { lineOf(el.dataset.newPrice).price = parseNum(el.value); });
-  delegate(root, "input", "[name=shipping]", updateSum);
-  delegate(root, "click", "[data-remove]", (e, el) => {
-    const i = lines.findIndex((l) => l.key === Number(el.dataset.remove));
-    lines.splice(i, 1);
-    if (!lines.length) lines.push({ key: nextKey++ });
-    drawLines();
-  });
-  root.querySelector("#add-line").onclick = () => { lines.push({ key: nextKey++ }); drawLines(); root.querySelector(`[data-pick="${nextKey - 1}"]`).focus(); };
-
-  root.querySelector("#save").onclick = async () => {
-    const f = formData(root.querySelector("#pform"));
-    const items = [];
-    for (const l of lines) {
-      if (!l.product_id && !l.isNew && !(l.label || "").trim()) continue;
-      if (!l.product_id && !l.isNew) return toast(`«${l.label}» را از فهرست انتخاب کنید یا «محصول جدید» را بزنید`, "error");
-      if (!l.qty) return toast("تعداد هر ردیف را وارد کنید", "error");
-      items.push(l.product_id ? { product_id: l.product_id, qty: l.qty, unit_cost: l.unit_cost || 0 }
-        : { qty: l.qty, unit_cost: l.unit_cost || 0, new_product: { name: l.label, brand: l.brand, category: l.category, price: l.price || 0 } });
-    }
-    if (!items.length) return toast("حداقل یک کالا وارد کنید", "error");
-    const btn = root.querySelector("#save");
-    btn.disabled = true;
-    try {
-      await api("/api/erp/purchases", { method: "POST", body: { ...f, account_id: Number(f.account_id) || null, items } });
-      toast("خرید ثبت شد و موجودی اضافه شد");
-      s.close();
-      refreshMe();
-      done && done();
-    } catch (e) { btn.disabled = false; }
-  };
   return s;
 }

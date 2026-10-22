@@ -53,7 +53,9 @@ function adminHome(d) {
   if (inv.low_count) alerts.push({ ico: "triangle-alert", cls: "warn", text: `${fa(inv.low_count)} محصول رو به اتمام`, link: "#/erp/products?f=low" });
   if (site.errors) alerts.push({ ico: "cloud-off", cls: "bad", text: `${fa(site.errors)} خطای همگام‌سازی سایت`, link: "#/erp/site" });
   if (!site.configured) alerts.push({ ico: "globe", cls: "info", text: "سایت هنوز وصل نشده — موجودی سایت خودکار به‌روز نمی‌شود", link: "#/erp/site" });
-  else if (!site.auto_push) alerts.push({ ico: "globe", cls: "warn", text: "همگام‌سازی خودکار موجودی سایت خاموش است", link: "#/erp/site" });
+  else if (!site.stock_sync) alerts.push({ ico: "globe", cls: "warn", text: "همگام‌سازی موجودی با سایت خاموش است", link: "#/erp/site" });
+  if (site.conflicts) alerts.push({ ico: "scale", cls: "warn", text: `${fa(site.conflicts)} محصول: موجودی انبار و سایت فرق دارد — یک بار انتخاب کنید`, link: "#/erp/site?tab=conflict" });
+  if (site.nocount) alerts.push({ ico: "hash", cls: "info", text: `${fa(site.nocount)} محصول در سایت تعداد موجودی ندارد`, link: "#/erp/site?tab=nocount" });
   if (site.unlinked && site.configured) alerts.push({ ico: "unlink", cls: "info", text: `${fa(site.unlinked)} محصول به سایت وصل نیست`, link: "#/erp/site" });
   if (money.receivable) alerts.push({ ico: "clock", cls: "warn", text: `${toman(money.receivable)} فروش پرداخت‌نشده`, link: "#/erp/sales?unpaid=1" });
   if (money.with_agents > 0) alerts.push({ ico: "hand-coins", cls: "info", text: `${toman(money.with_agents)} پول نزد فروشنده‌ها`, link: "#/erp/money" });
@@ -69,9 +71,9 @@ function adminHome(d) {
         </div>
       </div>
       <div class="quick">
-        <button data-link="#/erp/sell"><span class="q-ico" style="background:linear-gradient(135deg,#F6A496,#D27C6D)">${icon("shopping-bag")}</span><span>فروش سریع<small>حضوری، دایرکت، دوستان</small></span></button>
+        <button data-link="#/erp/sell"><span class="q-ico" style="background:linear-gradient(135deg,#F6A496,#D27C6D)">${icon("shopping-bag")}</span><span>ثبت فروش<small>حضوری، دایرکت، دوستان</small></span></button>
         <button data-act="expense"><span class="q-ico" style="background:linear-gradient(135deg,#D297BE,#AC6E97)">${icon("receipt")}</span><span>ثبت هزینه<small>با عکس رسید</small></span></button>
-        <button data-link="#/erp/purchases/new"><span class="q-ico" style="background:linear-gradient(135deg,#978DB3,#5B4B87)">${icon("truck")}</span><span>خرید کالا<small>ورود به انبار</small></span></button>
+        <button data-link="#/erp/sell?mode=buy"><span class="q-ico" style="background:linear-gradient(135deg,#978DB3,#5B4B87)">${icon("truck")}</span><span>خرید کالا<small>ورود به انبار</small></span></button>
         <button data-link="#/erp/products?f=out"><span class="q-ico" style="background:linear-gradient(135deg,#9CC4A3,#4D6F54)">${icon("package")}</span><span>موجودی<small>ناموجود کردن سریع</small></span></button>
       </div>
     </section>

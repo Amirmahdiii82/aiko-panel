@@ -1,6 +1,6 @@
-// Pricing module entry: what the shell needs to show this module (nav, pages, home card).
-import { fa, html, icon } from "/static/js/kit.js";
-import { P, ago, canEdit, gapBadge, img, nf1, refreshMeta, refreshReviewCount, startCrawl, syncAction, wireLive } from "./pricing.js";
+// Pricing module entry: what the shell needs to show this module (nav, pages, what the home page shows).
+import { fa } from "/static/js/kit.js";
+import { P, ago, canEdit, nf1, refreshMeta, refreshReviewCount, startCrawl, syncAction, wireLive } from "./pricing.js";
 
 export default {
   id: "pricing",
@@ -32,20 +32,25 @@ export default {
     refreshReviewCount();
     setTimeout(syncAction, 0);
   },
-  quick: (role) => (role === "editor" ? [{ href: "#/pricing/new", label: "قیمت‌گذاری محصول جدید", sub: "بررسی بازار و سود", ico: "tag", color: "#ADA4DC" }] : []),
+  quick: (role) => (role === "editor" ? [{ href: "#/pricing/new", label: "قیمت‌گذاری محصول", ico: "tag", tone: "indigo" }] : []),
 
-  /** Card on the unified home page. */
-  home(d) {
-    if (!d.products) return html`<p class="small muted">هنوز قیمتی خوانده نشده. از «قیمت رقبا» اولین بروزرسانی را بزنید.</p>`;
-    return html`<div class="grid g4">
-        <div class="mini-stat"><span>شاخص قیمت</span><b class="num">${d.median_index == null ? "—" : nf1.format(d.median_index)}</b><small>۱۰۰ = میانه بازار</small></div>
-        <div class="mini-stat"><span>خیلی گران‌تر</span><b class="num ${d.far_above ? "bad-ink" : ""}">${fa(d.far_above)}</b><small>محصول</small></div>
-        <div class="mini-stat"><span>فرصت افزایش</span><b class="num">${fa(d.raise_count)}</b><small>محصول</small></div>
-        <div class="mini-stat"><span>منتظر تأیید</span><b class="num">${fa(d.pending_reviews)}</b><small>تطبیق</small></div>
-      </div>
-      ${d.risk.length ? html`<div class="list mt12">${d.risk.map((r) => html`<a class="list-item clickable" href="#/pricing/products" style="text-decoration:none">${img(r.image, "thumb sm")}
-        <div class="grow"><div class="title ellipsis small">${r.name}</div></div>${gapBadge(r.gap)}</a>`)}</div>` : ""}
-      <p class="small muted mt12">${d.running ? html`<span class="spin"></span> در حال بروزرسانی…` : html`${icon("history", "sm")} آخرین بروزرسانی: ${ago(d.last_crawl?.finished_at)}`}</p>`;
+  /** The unified home page: key numbers and what needs attention. */
+  glance(d) {
+    if (!d.products) return { alerts: [{ tone: "info", ico: "chart-line", text: "قیمت رقبا هنوز خوانده نشده", href: "#/pricing" }] };
+    const alerts = [];
+    if (d.running) alerts.push({ tone: "info", ico: "loader-circle", text: "بروزرسانی قیمت رقبا در حال انجام است", href: "#/pricing" });
+    if (d.pending_reviews) alerts.push({ tone: "warn", ico: "check-check", text: `${fa(d.pending_reviews)} تطبیق قیمت منتظر تأیید`, href: "#/pricing/review" });
+    if (d.far_above) alerts.push({ tone: "bad", ico: "trending-up", text: `${fa(d.far_above)} محصول خیلی گران‌تر از بازار`, sub: d.risk.map((r) => r.name).slice(0, 2).join("، "), href: "#/pricing/products" });
+    if (d.raise_count) alerts.push({ tone: "ok", ico: "trending-down", text: `${fa(d.raise_count)} فرصت افزایش قیمت`, href: "#/pricing/products" });
+    return {
+      stats: [
+        { label: "شاخص قیمت", value: d.median_index == null ? "—" : nf1.format(d.median_index), unit: "۱۰۰ = میانه بازار", href: "#/pricing" },
+        { label: "خیلی گران‌تر", value: fa(d.far_above), unit: "محصول", href: "#/pricing/products" },
+        { label: "فرصت افزایش", value: fa(d.raise_count), unit: "محصول", href: "#/pricing/products" },
+        { label: "آخرین بروزرسانی", value: ago(d.last_crawl?.finished_at) || "—", unit: "", href: "#/pricing/sites" },
+      ],
+      alerts,
+    };
   },
 };
 export { P, canEdit };

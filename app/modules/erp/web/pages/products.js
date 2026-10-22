@@ -1,7 +1,7 @@
 // Products & stock: list, filters, quick "out of stock", adjustments, product drawer with history and site link.
-import { $, api, compact, confirmBox, delegate, esc, fa, html, icon, jdate, num, on, parseNum, pct, sheet, timeOf, toast, toman } from "/static/js/kit.js";
+import { $, api, compact, confirmBox, delegate, esc, fa, html, icon, jdate, num, on, parseNum, pct, sheet, timeOf, toast } from "/static/js/kit.js";
 import { bindMoney, emptyState, formData, moneyField, selectOptions, thumb } from "/static/js/kit.js";
-import { erp, isAdmin, refreshMe, stockBadge, wooBadge } from "../erp.js";
+import { erp, isAdmin, refreshMe, stockBadge, WOO_STATE, wooBadge } from "../erp.js";
 
 const FILTERS = [
   { key: "all", label: "همه" },
@@ -13,7 +13,7 @@ const FILTERS = [
   { key: "archived", label: "بایگانی", admin: true },
 ];
 const MOVE_LABEL = { opening: "موجودی اولیه", purchase: "خرید", sale: "فروش", sale_void: "برگشت فروش", adjust: "اصلاح دستی",
-  split: "تفکیک رنگ", purchase_void: "ابطال خرید" };
+  split: "تفکیک رنگ", purchase_void: "ابطال خرید", site_sync: "تغییر در سایت" };
 const norm = (s) => String(s || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/‌/g, " ").toLowerCase();
 
 export async function render(view, params, { setTitle, query }) {
@@ -270,17 +270,20 @@ export function openProduct(id, changed) {
       return html`<div class="callout">${icon("unlink")}<div>به محصول سایت وصل نیست؛ فروش‌های این محصول موجودی سایت را تغییر نمی‌دهد.
         <a href="#/erp/site" data-close-drawer>وصل کردن از صفحه «اتصال سایت»</a></div></div>`;
     }
-    const mismatch = p.woo_stock !== null && p.woo_stock !== undefined && p.woo_stock !== Math.max(0, p.stock);
+    const known = p.woo_stock !== null && p.woo_stock !== undefined;
+    const mismatch = known && p.woo_stock !== Math.max(0, p.stock) && p.woo_state !== "pending";
+    const st = WOO_STATE[p.woo_state];
     return html`<div class="inset stack s8">
       <div class="row between"><b>${icon("globe", "sm")} سایت</b>${p.woo_url ? html`<a class="btn xs ghost" href="${p.woo_url}" target="_blank" rel="noopener">${icon("external-link", "sm")} صفحه محصول</a>` : ""}</div>
       <div class="small">${p.woo_name || ""}</div>
-      <div class="row small"><span>موجودی سایت: <b>${p.woo_stock === null || p.woo_stock === undefined ? "نامعلوم" : fa(p.woo_stock)}</b></span>
-        <span>اینجا: <b>${fa(p.stock)}</b></span>${mismatch ? html`<span class="badge warn">ناهماهنگ</span>` : ""}
-        ${p.woo_synced_at ? html`<span class="muted">آخرین ارسال ${jdate(p.woo_synced_at.slice(0, 10), { year: false })} ${timeOf(p.woo_synced_at)}</span>` : ""}</div>
+      <div class="row small"><span>موجودی سایت: <b>${known ? fa(p.woo_stock) : p.woo_state === "nocount" ? (p.woo_in_stock ? "موجود (بدون عدد)" : "ناموجود") : "نامعلوم"}</b></span>
+        <span>اینجا: <b>${fa(p.stock)}</b></span>${wooBadge(p)}
+        ${p.woo_checked_at ? html`<span class="muted">بررسی ${jdate(p.woo_checked_at.slice(0, 10), { year: false })} ${timeOf(p.woo_checked_at)}</span>` : ""}</div>
+      ${st && p.woo_state !== "ok" && p.woo_state !== "error" ? html`<div class="tiny muted">${st.tip}</div>` : ""}
       ${p.woo_error ? html`<div class="small bad-ink">${p.woo_error}</div>` : ""}
       <div class="row">
-        <button class="btn xs soft" data-a="push">${icon("cloud-upload", "sm")} ارسال موجودی به سایت</button>
-        ${mismatch ? html`<button class="btn xs ghost" data-a="use-site">${icon("download", "sm")} موجودی سایت درست است</button>` : ""}
+        <button class="btn xs soft" data-a="push" title="سایت دقیقاً همین عدد را بگیرد">${icon("cloud-upload", "sm")} عدد اینجا درست است</button>
+        ${mismatch ? html`<button class="btn xs ghost" data-a="use-site">${icon("download", "sm")} عدد سایت درست است</button>` : ""}
         ${!p.woo_variation_id ? html`<button class="btn xs ghost" data-a="split">${icon("split", "sm")} تفکیک به رنگ‌ها</button>` : ""}
         <button class="btn xs ghost" data-a="unlink">${icon("unlink", "sm")} قطع اتصال</button>
       </div>
@@ -299,7 +302,10 @@ export function openProduct(id, changed) {
       await api(`/api/erp/products/${p.id}/adjust`, { method: "POST", body: { set_to: 0, reason: "ناموجود کردن سریع" } });
       toast("ناموجود شد"); after();
     }
-    if (a === "push") { await api(`/api/erp/products/${p.id}/push`, { method: "POST" }); toast("در صف ارسال به سایت"); setTimeout(after, 2500); }
+    if (a === "push") {
+      if (!(await confirmBox(`موجودی سایت دقیقاً ${fa(Math.max(0, p.stock))} شود؟`, { okText: "بله، روی سایت بگذار" }))) return;
+      await api(`/api/erp/products/${p.id}/push`, { method: "POST" }); toast("در حال ارسال به سایت"); setTimeout(after, 2500);
+    }
     if (a === "use-site") {
       if (!(await confirmBox(`موجودی اینجا ${fa(p.stock)} است و سایت ${fa(p.woo_stock)}. موجودی اینجا به ${fa(p.woo_stock)} تغییر کند؟`))) return;
       await api(`/api/erp/products/${p.id}/use-site-stock`, { method: "POST" }); toast("هماهنگ شد"); after();

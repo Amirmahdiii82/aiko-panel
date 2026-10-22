@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
 from ...core import events
-from . import config, db, exporter, importer, ledger, notify, reports, sitesync, woo
+from . import config, db, exporter, importer, ledger, notify, reports, sitesync, stocksync, woo
 from .deps import Admin, User
 
 router = APIRouter()
@@ -35,7 +35,7 @@ def me(user=User):
         users = [u for u in users if u["id"] == user["id"]]
     return {"user": user, "accounts": accounts, "partners": partners, "users": users,
             "channels": ledger.CHANNELS, "settings": settings, "brands": brands, "suppliers": suppliers,
-            "today": db.today(), "site": {"configured": woo.configured(woo_s), "auto_push": bool(woo_s.get("auto_push")),
+            "today": db.today(), "site": {"configured": woo.configured(woo_s), "stock_sync": stocksync.enabled(woo_s),
                                           "url": woo_s.get("url")}}
 
 
@@ -110,7 +110,7 @@ def seller_home(con, user) -> dict:
 # ---------------------------------------------------------------- products
 
 SELLER_PRODUCT_FIELDS = ("id", "sku", "name", "brand", "category", "price", "stock", "low_stock", "image", "woo_id",
-                         "woo_state", "active")
+                         "woo_state", "woo_in_stock", "active", "sold_30")
 
 
 @router.get("/products")
@@ -192,31 +192,36 @@ async def split(product_id: int, request: Request, user=Admin):
 
 @router.post("/products/{product_id}/push")
 def push_product(product_id: int, user=Admin):
+    """"The number here is right": set the site to exactly this product's stock here."""
     with db.tx() as con:
         p = ledger.get_product(con, product_id)
         if not p["woo_id"]:
             raise ledger.LedgerError("این محصول به سایت وصل نیست")
-        con.execute("UPDATE products SET woo_state = 'pending' WHERE id = ?", (product_id,))
+        con.execute("UPDATE products SET woo_state = 'force', woo_drift = NULL, woo_review = 0 WHERE id = ?", (product_id,))
     _push_soon()
     return {"ok": True}
 
 
 @router.post("/products/{product_id}/use-site-stock")
 def use_site_stock(product_id: int, user=Admin):
+    """"The site's number is right": take it over here now (without waiting for the second check)."""
     with db.tx() as con:
         p = ledger.get_product(con, product_id)
         if p["woo_stock"] is None:
-            raise ledger.LedgerError("موجودی سایت معلوم نیست؛ اول «خواندن محصولات سایت» را با کلیدهای API بزنید")
+            raise ledger.LedgerError("موجودی سایت معلوم نیست؛ «بررسی همین الان» را در صفحه اتصال سایت بزنید")
         ledger.adjust_stock(con, product_id, set_to=int(p["woo_stock"]), reason="هماهنگ با موجودی سایت", user=user)
-        con.execute("UPDATE products SET woo_state = 'ok' WHERE id = ?", (product_id,))
+        con.execute("""UPDATE products SET woo_state = 'ok', woo_drift = NULL, woo_review = 0,
+                       woo_base_move = (SELECT IFNULL(MAX(id), 0) FROM stock_moves WHERE product_id = ?) WHERE id = ?""",
+                    (product_id, product_id))
     return {"ok": True}
 
 
 def _push_soon() -> None:
-    """Push pending stock now, even when automatic sync is off (an explicit user action)."""
+    """Push pending stock now (an explicit user action)."""
     async def run():
         try:
-            await woo.push_pending()
+            async with woo.sync_lock():
+                await stocksync.push_pending()
         except Exception as exc:  # shown in the site log
             woo.wlog("push_stock", False, str(exc))
     events.run_soon(run)
@@ -585,10 +590,15 @@ def woo_status(request: Request, user=Admin):
     with db.read() as con:
         counts = db.one(con.execute(
             """SELECT COUNT(*) AS products, SUM(CASE WHEN woo_id IS NOT NULL THEN 1 ELSE 0 END) AS linked,
-                      SUM(CASE WHEN woo_state = 'pending' THEN 1 ELSE 0 END) AS pending,
-                      SUM(CASE WHEN woo_state = 'error' THEN 1 ELSE 0 END) AS errors,
-                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_stock IS NOT NULL AND woo_stock != MAX(stock, 0)
-                          THEN 1 ELSE 0 END) AS mismatched
+                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'ok' THEN 1 ELSE 0 END) AS ok,
+                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state IN ('pending', 'force') THEN 1 ELSE 0 END) AS pending,
+                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'error' THEN 1 ELSE 0 END) AS errors,
+                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'drift' THEN 1 ELSE 0 END) AS drift,
+                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'nocount' THEN 1 ELSE 0 END) AS nocount,
+                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'whole' THEN 1 ELSE 0 END) AS whole,
+                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'gone' THEN 1 ELSE 0 END) AS gone,
+                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'conflict' THEN 1 ELSE 0 END) AS conflict,
+                      MAX(woo_checked_at) AS checked_at
                FROM products WHERE active = 1"""))
         sales = db.one(con.execute(
             """SELECT SUM(CASE WHEN source = 'site' THEN 1 ELSE 0 END) AS site,
@@ -596,11 +606,15 @@ def woo_status(request: Request, user=Admin):
                FROM sales WHERE status = 'done'"""))
         logs = db.rows(con.execute("SELECT * FROM woo_log ORDER BY id DESC LIMIT 40"))
         review = sitesync.review(con)
-    base = config.PUBLIC_URL or str(request.base_url).rstrip("/")
     catalog = db.get_setting("woo_catalog", {}) or {}
     return {"settings": _woo_public(s), "configured": woo.configured(s), "counts": counts, "sales": sales, "log": logs,
-            "webhook_url": f"{base}/api/erp/woo/webhook", "catalog_fetched_at": catalog.get("fetched_at"),
-            "catalog_source": catalog.get("source"), "full_sync": sitesync.state(), "review": review}
+            "webhook_url": _webhook_url(request), "catalog_fetched_at": catalog.get("fetched_at"),
+            "catalog_source": catalog.get("source"), "full_sync": sitesync.state(), "review": review,
+            "busy": woo.sync_lock().locked()}
+
+
+def _webhook_url(request: Request) -> str:
+    return f"{config.PUBLIC_URL or str(request.base_url).rstrip('/')}/api/erp/woo/webhook"
 
 
 @router.put("/woo")
@@ -612,18 +626,39 @@ async def woo_save(request: Request, user=Admin):
         integrations.save_woo({k: body[k] for k in ("url", "key", "secret", "query_auth") if k in body})
     with db.tx() as con:
         s = db.get_setting("woo", {}, con) or {}
-        turning_on = body.get("auto_push") and not s.get("auto_push")
-        for key in ("auto_push", "pull_minutes", "webhook_secret"):
+        was_on = s.get("stock_sync", True)
+        for key in ("stock_sync", "pull_minutes", "webhook_secret"):
             if key in body:
                 s[key] = body[key].strip() if isinstance(body[key], str) else body[key]
         if not s.get("webhook_secret"):
             s["webhook_secret"] = secrets.token_urlsafe(24)
         db.set_setting("woo", s, con)
-        if turning_on:
-            notify.activity(con, "woo", "همگام‌سازی خودکار موجودی سایت روشن شد", f"توسط {user['name']}",
-                            user_id=user["id"], level="success")
-    woo.wake()
+        if "stock_sync" in body and bool(body["stock_sync"]) != bool(was_on):
+            notify.activity(con, "woo", "همگام‌سازی دوطرفه موجودی با سایت " + ("روشن شد" if body["stock_sync"] else "خاموش شد"),
+                            f"توسط {user['name']}", user_id=user["id"], level="success" if body["stock_sync"] else "warning")
+    stocksync.wake()
     return _woo_public(woo.settings())
+
+
+@router.post("/woo/sync-now")
+async def woo_sync_now(user=Admin):
+    """Orders, every product's stock, and what is waiting to be sent — right now."""
+    if woo.sync_lock().locked():
+        raise woo.WooError("یک همگام‌سازی همین الان در حال انجام است؛ چند لحظه دیگر دوباره بزنید")
+    return await stocksync.sync_now()
+
+
+@router.post("/woo/resolve")
+async def woo_resolve(request: Request, user=Admin):
+    """Old differences between the numbers here and on the site: which side was right (some products, or all)."""
+    body = await request.json()
+    return {"count": stocksync.resolve(body.get("product_ids"), body.get("side"), user)}
+
+
+@router.post("/woo/webhooks")
+async def woo_webhooks(request: Request, user=Admin):
+    """Create the site's webhooks to this panel (orders and product changes arrive instantly)."""
+    return await woo.ensure_webhooks(_webhook_url(request))
 
 
 @router.post("/woo/full-sync")
@@ -647,7 +682,10 @@ def woo_catalog(user=Admin):
     with db.read() as con:
         linked = db.rows(con.execute(
             """SELECT id, sku, name, stock, price, image, woo_id, woo_variation_id, woo_name, woo_url, woo_state,
-                      woo_error, woo_stock, woo_synced_at FROM products WHERE active = 1 AND woo_id IS NOT NULL ORDER BY name"""))
+                      woo_error, woo_stock, woo_synced_at, woo_manage, woo_in_stock, woo_drift, woo_checked_at, woo_review
+               FROM products WHERE active = 1 AND woo_id IS NOT NULL
+               ORDER BY CASE woo_state WHEN 'conflict' THEN 0 WHEN 'error' THEN 0 WHEN 'gone' THEN 1 WHEN 'drift' THEN 2 WHEN 'nocount' THEN 3
+                        WHEN 'whole' THEN 4 WHEN 'pending' THEN 5 WHEN 'force' THEN 5 ELSE 6 END, name"""))
         sugg = woo.suggestions(con, catalog) if catalog.get("items") else []
     used = {(p["woo_id"], p["woo_variation_id"]) for p in linked}
     whole_linked = {w for w, v in used if v is None}          # product linked as a whole: its colors are covered
@@ -678,6 +716,7 @@ async def woo_link(request: Request, user=Admin):
                 skipped.append(str(exc))
         notify.activity(con, "woo_link", f"{ledger.fa(done)} محصول به سایت وصل شد", f"توسط {user['name']}",
                         user_id=user["id"])
+    stocksync.touch([link.get("woo_id") for link in links])
     return {"ok": True, "count": done, "skipped": skipped}
 
 
@@ -689,14 +728,6 @@ async def woo_unlink(request: Request, user=Admin):
                        woo_error = NULL, woo_stock = NULL WHERE id = ?""", (int(body["product_id"]),))
         notify.publish_after(con, {"type": "refresh", "scope": "products"})
     return {"ok": True}
-
-
-@router.post("/woo/push-all")
-def woo_push_all(user=Admin):
-    with db.tx() as con:
-        n = con.execute("UPDATE products SET woo_state = 'pending' WHERE active = 1 AND woo_id IS NOT NULL").rowcount
-    _push_soon()
-    return {"queued": n}
 
 
 @router.post("/woo/pull")
@@ -719,11 +750,14 @@ async def woo_webhook(request: Request):
         woo.wlog("webhook", False, "امضای وب‌هوک نامعتبر بود (Secret را چک کنید)")
         raise HTTPException(401, "bad signature")
     topic = request.headers.get("x-wc-webhook-topic", "")
+    import json
+    data = json.loads(body or b"{}")
     if topic.startswith("order."):
-        import json
-        order = json.loads(body)
-        result = await asyncio.to_thread(woo.process_order, order)
-        woo.wlog("webhook", True, f"{topic} #{order.get('number') or order.get('id')} ({order.get('status')}): {result}")
+        result = await asyncio.to_thread(woo.process_order, data)
+        woo.wlog("webhook", True, f"{topic} #{data.get('number') or data.get('id')} ({data.get('status')}): {result}")
+    elif topic.startswith("product."):
+        # stock, price or a new color changed on the site: read that product again within seconds
+        stocksync.touch([data.get("parent_id") or data.get("id")])
     return {"ok": True}
 
 

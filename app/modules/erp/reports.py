@@ -196,8 +196,14 @@ def dashboard(con, user: dict) -> dict:
     low = db.rows(con.execute(
         """SELECT id, name, stock, low_stock, image, woo_id FROM products
            WHERE active = 1 AND stock <= low_stock ORDER BY stock, name LIMIT 12"""))
-    sync_errors = con.execute("SELECT COUNT(*) FROM products WHERE active = 1 AND woo_state = 'error'").fetchone()[0]
-    pending = con.execute("SELECT COUNT(*) FROM products WHERE active = 1 AND woo_state = 'pending'").fetchone()[0]
+    sync_errors = con.execute("""SELECT COUNT(*) FROM products WHERE active = 1 AND woo_id IS NOT NULL
+                                 AND woo_state IN ('error', 'gone')""").fetchone()[0]
+    pending = con.execute("""SELECT COUNT(*) FROM products WHERE active = 1 AND woo_id IS NOT NULL
+                             AND woo_state IN ('pending', 'force')""").fetchone()[0]
+    nocount = con.execute("""SELECT COUNT(*) FROM products WHERE active = 1 AND woo_id IS NOT NULL
+                             AND woo_state = 'nocount'""").fetchone()[0]
+    conflicts = con.execute("""SELECT COUNT(*) FROM products WHERE active = 1 AND woo_id IS NOT NULL
+                               AND woo_state = 'conflict'""").fetchone()[0]
     unlinked = con.execute("SELECT COUNT(*) FROM products WHERE active = 1 AND woo_id IS NULL").fetchone()[0]
     channels = db.rows(con.execute(
         """SELECT channel, COUNT(*) AS orders, SUM(total) AS revenue FROM sales
@@ -218,8 +224,8 @@ def dashboard(con, user: dict) -> dict:
         "inventory": inventory_stats(con),
         "money": ledger.summary_money(con),
         "partners": ledger.partner_positions(con),
-        "site": {"configured": woo_sync.configured(woo), "auto_push": bool(woo.get("auto_push")),
-                 "errors": sync_errors, "pending": pending, "unlinked": unlinked,
+        "site": {"configured": woo_sync.configured(woo), "stock_sync": bool(woo.get("stock_sync", True)),
+                 "errors": sync_errors, "pending": pending, "unlinked": unlinked, "nocount": nocount, "conflicts": conflicts,
                  "last_order_sync": woo.get("last_order_sync")},
         "recent": recent,
     }

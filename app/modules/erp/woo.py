@@ -1,12 +1,11 @@
-"""WooCommerce connection.
+"""WooCommerce connection: the HTTP client, reading the site's catalogue, website orders, webhooks.
 
-* Stock flows from here to the site: whenever stock of a linked product changes, a background worker
-  sets that exact quantity on the site (WooCommerce marks it "out of stock" by itself at 0).
-* Website orders flow from the site to here: a webhook delivers them instantly, and the worker also
-  polls recent orders every few minutes in case a webhook was missed. Each order becomes one sale with the
-  site's exact figures (line prices, coupons, shipping, fees, refunds).
-* The site address and API keys are the shared WooCommerce connection (Settings → Connections); only the
-  sync options (automatic stock push, polling interval, webhook secret, last sync) are ERP settings.
+* Website orders flow from the site to here: a webhook delivers them instantly, and the sync worker also polls
+  recent orders every few minutes in case a webhook was missed. Each order becomes one sale with the site's exact
+  figures (line prices, coupons, shipping, fees, refunds).
+* Stock is synced both ways by stocksync.py (changes made here and changes made on the site are both kept).
+* The site address and API keys are the shared WooCommerce connection (Settings → Connections); only the sync
+  options (two-way stock on/off, polling interval, webhook secret, last sync) are ERP settings.
 * A full sync (sitesync.py) brings in every site product and every order since the shop opened.
 """
 import asyncio
@@ -15,7 +14,6 @@ import hashlib
 import hmac
 import logging
 import re
-import time
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 
@@ -31,9 +29,7 @@ COUNTED = {"processing", "completed", "on-hold"}       # WooCommerce has already
 CANCELLED = {"cancelled", "refunded", "failed"}
 CURRENCY_FACTOR = {"IRR": 0.1, "IRHR": 100, "IRT": 1, "IRHT": 1000}
 
-_loop: asyncio.AbstractEventLoop | None = None
-_wake: asyncio.Event | None = None
-_sync_lock: asyncio.Lock | None = None      # one order import at a time (worker poll vs. full sync)
+_sync_lock: asyncio.Lock | None = None      # one sync job at a time (worker vs. full sync)
 TEHRAN_OFFSET = "+03:30"
 
 
@@ -160,44 +156,83 @@ class Woo:
         return out
 
 
-# ---------------------------------------------------------------- catalog (site products for linking)
+# ---------------------------------------------------------------- reading the site's catalogue
+
+PRODUCT_FIELDS = ("id,name,type,price,images,permalink,status,manage_stock,stock_quantity,stock_status,sku,"
+                  "categories,brands,attributes")
+VARIATION_FIELDS = "id,attributes,price,image,status,manage_stock,stock_quantity,stock_status,sku"
+
+
+def _entry(p: dict, currency: str) -> dict:
+    image = (p.get("images") or [{}])[0].get("src") if p.get("images") else None
+    return {
+        "woo_id": p["id"], "variation_id": None, "type": p.get("type"), "name": _clean(p.get("name")),
+        "price": to_toman(p.get("price"), currency), "image": image, "url": p.get("permalink"),
+        "status": p.get("status"), "manage_stock": p.get("manage_stock") is True,
+        "stock": p.get("stock_quantity"), "in_stock": p.get("stock_status") in ("instock", "onbackorder"),
+        "sku": p.get("sku") or "", "categories": [_clean(c.get("name")) for c in p.get("categories") or []],
+        "brand": next((_clean(b.get("name")) for b in p.get("brands") or []), "") or _attr(p, ("برند", "brand")),
+    }
+
+
+def _variation_entry(parent: dict, v: dict, currency: str) -> dict:
+    label = " / ".join(a.get("option") or "" for a in v.get("attributes") or []) or f"#{v['id']}"
+    return {**parent, "variation_id": v["id"], "type": "variation", "name": f"{parent['name']} — {label}",
+            "variation_label": label, "price": to_toman(v.get("price"), currency),
+            "image": (v.get("image") or {}).get("src") or parent["image"], "status": v.get("status"),
+            # "parent": the color uses the product's shared stock; it has no count of its own
+            "manage_stock": v.get("manage_stock") is True, "stock": v.get("stock_quantity"),
+            "in_stock": v.get("stock_status") in ("instock", "onbackorder"), "sku": v.get("sku") or ""}
+
+
+async def read_site(woo: "Woo", *, parents: list[int] | None = None, modified_after: str | None = None) -> list[dict]:
+    """Site products and their colors with exact stock: all of them, the given products (`parents`), or the ones
+    changed after `modified_after` (UTC ISO). A variable product always comes with all of its colors."""
+    currency = settings().get("currency") or "IRT"
+    base = {"status": "any", "_fields": PRODUCT_FIELDS}
+    if modified_after:
+        base.update(modified_after=modified_after[:19], dates_are_gmt="true")
+    products = []
+    if parents is None:
+        products = await woo.paged("products", base, limit_pages=200)
+    else:
+        ids = sorted(set(parents))
+        for i in range(0, len(ids), 100):
+            products += await woo.paged("products", {**base, "include": ",".join(map(str, ids[i:i + 100]))})
+    entries = []
+    for p in products:
+        parent = _entry(p, currency)
+        entries.append(parent)
+        if p.get("type") == "variable":
+            for v in await woo.paged(f"products/{p['id']}/variations", {"_fields": VARIATION_FIELDS}):
+                entries.append(_variation_entry(parent, v, currency))
+    return entries
+
+
+def store_catalog(entries: list[dict], *, full: bool) -> dict:
+    """Keep the copy of the site catalogue used for linking and for products created from orders. A partial read
+    replaces only the products it read."""
+    with db.tx() as con:
+        catalog = db.get_setting("woo_catalog", {}, con) or {}
+        if full:
+            items = entries
+        else:
+            read = {e["woo_id"] for e in entries}
+            items = [e for e in catalog.get("items") or [] if e["woo_id"] not in read] + entries
+        catalog = {"fetched_at": db.now() if full else catalog.get("fetched_at") or db.now(), "source": "api",
+                   "items": items, "updated_at": db.now()}
+        db.set_setting("woo_catalog", catalog, con)
+    return catalog
+
 
 async def fetch_catalog() -> dict:
     """Every site product and color (variation) with exact stock, through the API (keys required)."""
     s = settings()
     if not configured(s):
         raise WooError("اول در «تنظیمات ← سایت و اتصال‌ها» کلیدهای ووکامرس را وارد کنید")
-    entries = []
     async with Woo(s) as woo:
-        currency = s.get("currency") or "IRT"
-        for p in await woo.paged("products", {"status": "any"}):
-            image = (p.get("images") or [{}])[0].get("src") if p.get("images") else None
-            cats = [_clean(c.get("name")) for c in p.get("categories") or []]
-            brand = next((_clean(b.get("name")) for b in p.get("brands") or []), "") or _attr(p, ("برند", "brand"))
-            entries.append({
-                "woo_id": p["id"], "variation_id": None, "type": p.get("type"), "name": _clean(p.get("name")),
-                "price": to_toman(p.get("price"), currency), "image": image, "url": p.get("permalink"),
-                "status": p.get("status"), "manage_stock": p.get("manage_stock") is True,
-                "stock": p.get("stock_quantity"), "in_stock": p.get("stock_status") == "instock",
-                "sku": p.get("sku") or "", "categories": cats, "brand": brand,
-            })
-            if p.get("type") == "variable":
-                for v in await woo.paged(f"products/{p['id']}/variations"):
-                    label = " / ".join(a.get("option") or "" for a in v.get("attributes") or []) or f"#{v['id']}"
-                    entries.append({
-                        "woo_id": p["id"], "variation_id": v["id"], "type": "variation",
-                        "name": f"{_clean(p.get('name'))} — {label}", "variation_label": label,
-                        "price": to_toman(v.get("price"), currency),
-                        "image": (v.get("image") or {}).get("src") or image, "url": p.get("permalink"),
-                        "status": v.get("status"), "manage_stock": v.get("manage_stock") is True,
-                        "stock": v.get("stock_quantity"), "in_stock": v.get("stock_status") == "instock",
-                        "sku": v.get("sku") or "", "categories": cats, "brand": brand,
-                    })
-    catalog = {"fetched_at": db.now(), "source": "api", "items": entries}
-    db.set_setting("woo_catalog", catalog)
-    with db.tx() as con:
-        _refresh_link_details(con, entries)
-    return catalog
+        entries = await read_site(woo)
+    return store_catalog(entries, full=True)
 
 
 def _attr(p: dict, names: tuple) -> str:
@@ -210,18 +245,6 @@ def _attr(p: dict, names: tuple) -> str:
 def _clean(name: str | None) -> str:
     import html
     return html.unescape(name or "").strip()
-
-
-def _refresh_link_details(con, entries: list[dict]) -> None:
-    """Keep the site name/image/stock shown next to linked products up to date."""
-    by_key = {(e["woo_id"], e["variation_id"]): e for e in entries}
-    for p in con.execute("SELECT id, woo_id, woo_variation_id, image FROM products WHERE woo_id IS NOT NULL").fetchall():
-        e = by_key.get((p["woo_id"], p["woo_variation_id"]))
-        if not e:
-            con.execute("UPDATE products SET woo_error = 'این محصول در سایت پیدا نشد (حذف شده؟)' WHERE id = ?", (p["id"],))
-            continue
-        con.execute("UPDATE products SET woo_name = ?, woo_url = ?, image = COALESCE(image, ?), woo_stock = ? WHERE id = ?",
-                    (e["name"], e["url"], e["image"], e["stock"], p["id"]))
 
 
 _STOP = {"مدل", "شماره", "رنگ", "کد", "و", "با", "|", "-", "—", "–"}
@@ -283,67 +306,14 @@ def link_product(con, product_id: int, woo_id: int, variation_id: int | None, ca
         raise ledger.LedgerError(f"این محصول سایت قبلاً به «{clash[0]}» وصل شده")
     entry = next((e for e in (catalog or {}).get("items", [])
                   if e["woo_id"] == woo_id and e["variation_id"] == variation_id), {})
+    # a new link starts a new agreement: from here on, changes on either side are kept (stocksync.py)
     con.execute("""UPDATE products SET woo_id = ?, woo_variation_id = ?, woo_name = ?, woo_url = ?,
-                   image = COALESCE(?, image), woo_stock = ?, woo_state = NULL, woo_error = NULL, updated_at = ?
-                   WHERE id = ?""",
+                   image = COALESCE(?, image), woo_stock = ?, woo_state = NULL, woo_error = NULL, woo_drift = NULL,
+                   woo_price = NULL, woo_review = 1, woo_base_move = (SELECT IFNULL(MAX(id), 0) FROM stock_moves WHERE product_id = ?),
+                   updated_at = ? WHERE id = ?""",
                 (woo_id, variation_id, entry.get("name"), entry.get("url"), entry.get("image"), entry.get("stock"),
-                 db.now(), product_id))
+                 product_id, db.now(), product_id))
     notify.publish_after(con, {"type": "refresh", "scope": "products"})
-
-
-# ---------------------------------------------------------------- stock push
-
-async def push_pending() -> dict:
-    s = settings()
-    if not configured(s):
-        return {"pushed": 0, "errors": 0}
-    with db.read() as con:
-        todo = db.rows(con.execute(
-            """SELECT id, name, stock, woo_id, woo_variation_id FROM products
-               WHERE active = 1 AND woo_id IS NOT NULL AND woo_state = 'pending' ORDER BY id LIMIT 300"""))
-    if not todo:
-        return {"pushed": 0, "errors": 0}
-    groups: dict[str, list[dict]] = {}
-    for p in todo:
-        path = f"products/{p['woo_id']}/variations/batch" if p["woo_variation_id"] else "products/batch"
-        groups.setdefault(path, []).append(p)
-    pushed = errors = 0
-    async with Woo(s) as woo:
-        for path, items in groups.items():
-            for chunk in (items[i:i + 100] for i in range(0, len(items), 100)):
-                payload = {"update": [{"id": p["woo_variation_id"] or p["woo_id"], "manage_stock": True,
-                                       "stock_quantity": max(0, p["stock"])} for p in chunk]}
-                try:
-                    data, _ = await woo.request("POST", path, json=payload)
-                    results = {r.get("id"): r for r in (data.get("update") or [])}
-                except WooError as exc:
-                    results = {}
-                    for p in chunk:
-                        results[p["woo_variation_id"] or p["woo_id"]] = {"error": {"message": str(exc)}}
-                with db.tx() as con:
-                    for p in chunk:
-                        r = results.get(p["woo_variation_id"] or p["woo_id"]) or {"error": {"message": "پاسخی نیامد"}}
-                        if r.get("error"):
-                            errors += 1
-                            msg = r["error"].get("message") or "خطا"
-                            con.execute("UPDATE products SET woo_state = 'error', woo_error = ? WHERE id = ?", (msg, p["id"]))
-                            notify.publish_after(con, {"type": "product", "id": p["id"], "woo_state": "error"})
-                        else:
-                            pushed += 1
-                            # if stock changed again while we were sending, leave it pending for the next round
-                            con.execute("""UPDATE products SET woo_state = CASE WHEN stock = ? THEN 'ok' ELSE 'pending' END,
-                                           woo_error = NULL, woo_synced_at = ?, woo_stock = ? WHERE id = ?""",
-                                        (p["stock"], db.now(), r.get("stock_quantity"), p["id"]))
-                            notify.publish_after(con, {"type": "product", "id": p["id"], "woo_state": "ok",
-                                                       "woo_stock": r.get("stock_quantity")})
-    names = "، ".join(p["name"] for p in todo[:4]) + ("…" if len(todo) > 4 else "")
-    wlog("push_stock", errors == 0, f"{pushed} موفق، {errors} ناموفق: {names}")
-    if errors:
-        with db.tx() as con:
-            notify.activity(con, "sync_error", "⚠️ به‌روزرسانی موجودی سایت ناموفق بود",
-                            f"{ledger.fa(errors)} محصول ارسال نشد. صفحه «سایت» را ببینید.", level="danger",
-                            link="#/erp/site", notify=True, bot="on_sync_error")
-    return {"pushed": pushed, "errors": errors}
 
 
 # ---------------------------------------------------------------- orders
@@ -585,42 +555,34 @@ def verify_webhook(body: bytes, signature: str | None) -> bool:
     return hmac.compare_digest(expected, signature.strip())
 
 
-# ---------------------------------------------------------------- background worker
+# ---------------------------------------------------------------- webhooks (instant orders and product changes)
 
-def wake() -> None:
-    if _loop and _wake:
-        _loop.call_soon_threadsafe(_wake.set)
+WEBHOOK_TOPICS = {"order.created": "سفارش ایجاد شد", "order.updated": "سفارش به‌روز شد",
+                  "product.created": "محصول ایجاد شد", "product.updated": "محصول به‌روز شد",
+                  "product.deleted": "محصول حذف شد"}
 
 
-async def worker() -> None:
-    global _loop, _wake
-    _loop = asyncio.get_running_loop()
-    _wake = asyncio.Event()
-    ledger.sync_wake = wake
-    last_pull = 0.0
-    while True:
-        try:
-            await asyncio.wait_for(_wake.wait(), timeout=20)
-        except asyncio.TimeoutError:
-            pass
-        _wake.clear()
-        await asyncio.sleep(1.2)   # gather a burst of changes into one request
-        s = settings()
-        if not configured(s):
-            continue
-        if sync_lock().locked():         # a full sync is importing history; it pushes nothing and polls after
-            continue
-        try:
-            if s.get("auto_push"):
-                await push_pending()
-            minutes = max(1, int(s.get("pull_minutes") or 3))
-            if time.monotonic() - last_pull >= minutes * 60:
-                last_pull = time.monotonic()
-                async with sync_lock():
-                    await pull_orders()
-        except WooError as exc:
-            wlog("worker", False, str(exc))
-            last_pull = time.monotonic()
-        except Exception:   # never let the worker die
-            log.exception("woo worker error")
-            await asyncio.sleep(10)
+async def ensure_webhooks(delivery_url: str) -> dict:
+    """Create (or re-activate) the site's webhooks to this panel, so orders and product edits arrive instantly.
+    Needs a read/write API key. The periodic checks keep everything in step even without them."""
+    s = settings()
+    if not configured(s):
+        raise WooError("اول کلیدهای ووکامرس را وارد کنید")
+    secret = s.get("webhook_secret") or ""
+    made, fixed = [], []
+    async with Woo(s) as woo:
+        existing = [w for w in await woo.paged("webhooks", {}, limit_pages=5)
+                    if (w.get("delivery_url") or "").rstrip("/") == delivery_url.rstrip("/")]
+        by_topic = {w.get("topic"): w for w in existing}
+        for topic, label in WEBHOOK_TOPICS.items():
+            body = {"name": f"پنل آیکو — {label}", "topic": topic, "delivery_url": delivery_url, "secret": secret,
+                    "status": "active", "api_version": "wp_api_v3"}
+            if topic in by_topic:
+                await woo.request("PUT", f"webhooks/{by_topic[topic]['id']}", json=body)
+                fixed.append(topic)
+            else:
+                await woo.request("POST", "webhooks", json=body)
+                made.append(topic)
+    _save_woo({"webhooks_at": db.now(), "webhooks_url": delivery_url})
+    wlog("webhooks", True, f"{len(made)} وب‌هوک ساخته شد، {len(fixed)} وب‌هوک به‌روز شد")
+    return {"created": made, "updated": fixed}

@@ -12,6 +12,7 @@ Steps (each one is safe to repeat; running the sync twice changes nothing the se
    order, keeping the purchase cost the sheet knew.
 6. Products created from the site get an opening stock so their stock equals the site's.
 7. Sold lines without a cost get the product's cost once it is known; what is still missing is reported.
+8. Stock of every linked product is compared with the site (stocksync.reconcile).
 """
 import asyncio
 import logging
@@ -75,9 +76,11 @@ async def run(user: dict | None = None) -> dict:
             woo.wlog("full_sync", False, msg)
             _set_state(running=False, step="", error=msg, finished_at=db.now())
             return {"error": msg}
+    drift = report.pop("drift_parents", [])
     _set_state(running=False, step="", error="", finished_at=db.now(), report=report)
     woo.wlog("full_sync", True, summary_text(report))
-    woo.wake()
+    from . import stocksync
+    stocksync.after_full_sync(drift)
     return report
 
 
@@ -106,7 +109,11 @@ def apply(catalog: dict, orders: list[dict], user: dict | None = None) -> dict:
     with db.tx() as con:
         report["openings"] = settle_openings(con, entries)
         report["costs_filled"] = ledger.fill_missing_costs(con)
-        _settle_push_state(con)
+    from . import stocksync
+    with db.tx() as con:
+        stock = stocksync.reconcile(con, entries, full=True)
+    report["stock_adopted"] = len(stock["adopted"])
+    report["drift_parents"] = sorted(stock["drift"])
     with db.read() as con:
         report.update(review(con))
     with db.tx() as con:
@@ -250,8 +257,9 @@ def settle_openings(con, entries: list[dict]) -> int:
         target = max(0, site_stock) if site_stock is not None else max(0, p["stock"])
         delta = target - p["stock"]
         if delta:
-            ledger.add_move(con, p["id"], delta, "opening", note="موجودی اولیه (هماهنگ با سایت)" if site_stock is not None
-                            else "موجودی اولیه (سایت عدد موجودی ندارد)", quiet=True)
+            ledger.add_move(con, p["id"], delta, "opening", ref_type="site", quiet=True,
+                            note="موجودی اولیه (هماهنگ با سایت)" if site_stock is not None
+                            else "موجودی اولیه (سایت عدد موجودی ندارد)")
             first = con.execute("""SELECT MIN(created_at) FROM stock_moves WHERE product_id = ? AND kind != 'opening'""",
                                 (p["id"],)).fetchone()[0]
             if first:
@@ -261,13 +269,6 @@ def settle_openings(con, entries: list[dict]) -> int:
         con.execute("UPDATE products SET site_created = 0, woo_stock = ? WHERE id = ?",
                     (site_stock if site_stock is not None else p["woo_stock"], p["id"]))
     return n
-
-
-def _settle_push_state(con) -> None:
-    """Importing history marked linked products "to send"; nothing changed on the shelf, so only products whose
-    stock really differs from the site stay flagged (as a mismatch to review, never pushed silently)."""
-    con.execute("""UPDATE products SET woo_state = CASE WHEN woo_stock IS NOT NULL AND woo_stock = MAX(stock, 0)
-                   THEN 'ok' ELSE NULL END WHERE active = 1 AND woo_id IS NOT NULL AND woo_state = 'pending'""")
 
 
 # ---------------------------------------------------------------- what still needs a person

@@ -159,9 +159,9 @@ def add_move(con, product_id: int, qty: int, kind: str, *, unit_cost: float | No
 def _site_note(con, p: dict) -> str:
     if p["woo_id"] is None:
         return "این محصول به سایت وصل نیست؛ اگر در سایت هست، دستی ناموجودش کنید."
-    if (db.get_setting("woo", {}, con) or {}).get("auto_push"):
+    if (db.get_setting("woo", {}, con) or {}).get("stock_sync", True):
         return "در سایت هم خودکار به‌روز می‌شود."
-    return "همگام‌سازی خودکار سایت خاموش است؛ از صفحه «سایت» ارسال کنید."
+    return "همگام‌سازی موجودی با سایت خاموش است؛ از صفحه «اتصال سایت» روشنش کنید."
 
 
 def _stock_alerts(con, p: dict, before: int, after: int, user_id: int | None) -> None:

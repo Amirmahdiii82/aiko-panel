@@ -1,5 +1,5 @@
-// Media studio entry: what the shell needs to show this module (nav, pages, home card).
-import { fa, html, icon, isOwner } from "/static/js/kit.js";
+// Media studio entry: what the shell needs to show this module (nav, pages, what the home page shows).
+import { fa, isOwner } from "/static/js/kit.js";
 import { usd } from "./media.js";
 
 export default {
@@ -21,19 +21,15 @@ export default {
     library: () => import("./pages/library.js"),
     settings: () => import("./pages/settings.js"),
   },
-  quick: (role) => (role === "creator" ? [{ href: "#/media", label: "ساخت تصویر یا ویدیو", sub: "تبلیغ با هوش مصنوعی", ico: "wand-sparkles", color: "#D297BE" }] : []),
+  quick: (role) => (role === "creator" ? [{ href: "#/media", label: "ساخت محتوا", ico: "wand-sparkles", tone: "orchid" }] : []),
 
-  /** Card on the unified home page. */
-  home(d) {
+  /** The unified home page: what needs attention (the studio has no business numbers to show there). */
+  glance(d) {
     if (!d.configured) {
-      return html`<p class="small muted">${isOwner() ? html`کلید OpenRouter تنظیم نشده. <a href="#/media/settings">تنظیم</a>` : "استودیو هنوز راه‌اندازی نشده."}</p>`;
+      return { alerts: isOwner() ? [{ tone: "info", ico: "key-round", text: "استودیو محتوا راه‌اندازی نشده", sub: "کلید OpenRouter", href: "#/media/settings" }] : [] };
     }
-    return html`<div class="grid g3">
-        <div class="mini-stat"><span>هزینه این ماه</span><b class="num ltr" style="text-align:right">${usd(d.month_spend) || "$0"}</b><small>OpenRouter</small></div>
-        <div class="mini-stat"><span>در حال ساخت</span><b class="num">${fa(d.active)}</b><small>کار</small></div>
-        <div class="mini-stat"><span>ساخته‌های اخیر</span><b class="num">${fa(d.recent.length)}</b><small>در کتابخانه</small></div>
-      </div>
-      ${d.recent.length ? html`<div class="thumb-strip mt12">${d.recent.map((g) => html`<a href="#/media/library/${g.id}" title="${g.prompt}">
-        ${g.thumb ? html`<img src="${g.thumb}" alt="" loading="lazy">` : icon(g.kind === "video" ? "video" : "image")}</a>`)}</div>` : ""}`;
+    const alerts = [];
+    if (d.active) alerts.push({ tone: "info", ico: "loader-circle", text: `${fa(d.active)} تصویر/ویدیو در حال ساخت`, href: "#/media/library" });
+    return { alerts, stats: [{ label: "هزینه استودیو این ماه", value: usd(d.month_spend) || "$0", unit: "OpenRouter", href: "#/media/library" }] };
   },
 };

@@ -37,7 +37,7 @@ DEFAULT_SETTINGS = {
     "channel_accounts": {},           # channel -> default account id for money received
     "woo": {
         "url": config.WOO_URL, "key": "", "secret": "", "webhook_secret": "", "query_auth": False,
-        "auto_push": False, "pull_minutes": 3, "last_order_sync": "",
+        "stock_sync": True, "pull_minutes": 3, "last_order_sync": "",
     },
 }
 
