@@ -58,7 +58,7 @@ function adminHome(d) {
   if (money.receivable) alerts.push({ ico: "clock", cls: "warn", text: `${toman(money.receivable)} فروش پرداخت‌نشده`, link: "#/erp/sales?unpaid=1" });
   if (money.with_agents > 0) alerts.push({ ico: "hand-coins", cls: "info", text: `${toman(money.with_agents)} پول نزد فروشنده‌ها`, link: "#/erp/money" });
 
-  return html`<div class="stack">
+  return html`<div class="stack erp-dashboard erp-admin-dashboard">
     <section class="hero">
       <span class="blob-deco" style="width:220px;height:220px;left:-60px;top:-80px"></span>
       <span class="blob-deco" style="width:140px;height:140px;left:22%;bottom:-70px;opacity:.1"></span>
@@ -76,7 +76,7 @@ function adminHome(d) {
       </div>
     </section>
 
-    <div class="grid g4">
+    <div class="grid g4 erp-kpis">
       ${moneyKpi({ label: "فروش این ماه", amount: m.revenue, color: "indigo", ico: "trending-up",
         foot: html`${delta(m.revenue, pm.revenue)} <span>نسبت به ماه قبل، ${fa(m.orders)} سفارش</span>` })}
       ${moneyKpi({ label: "سود ناخالص", amount: m.gross, color: "orchid", ico: "sparkles",
@@ -87,7 +87,7 @@ function adminHome(d) {
         foot: html`<span>${fa(inv.units)} عدد، ارزش فروش ${compact(inv.retail_value)}</span>` })}
     </div>
 
-    <div class="grid side">
+    <div class="grid side erp-analysis">
       <section class="card">
         <div class="card-head"><h2>${icon("chart-column")} فروش ۳۰ روز اخیر</h2><span class="spacer"></span>
           <a class="btn sm ghost" href="#/erp/reports">گزارش کامل ${icon("chevron-left", "sm")}</a></div>
@@ -100,7 +100,7 @@ function adminHome(d) {
       </section>
     </div>
 
-    <div class="grid g3">
+    <div class="grid g3 erp-ops">
       <section class="card">
         <div class="card-head"><h2>${icon("bell")} نیاز به توجه</h2></div>
         ${alerts.length ? html`<div class="list">${alerts.map((a) => html`<div class="list-item clickable" data-link="${a.link}">
@@ -142,7 +142,7 @@ function adminHome(d) {
 }
 
 function sellerHome(d) {
-  return html`<div class="stack">
+  return html`<div class="stack erp-dashboard erp-seller-dashboard">
     <section class="hero">
       <span class="blob-deco" style="width:200px;height:200px;left:-50px;top:-70px"></span>
       <h1>فروش جدید داشتید؟</h1>

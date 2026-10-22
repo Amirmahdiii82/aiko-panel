@@ -1,6 +1,72 @@
 /* ERP-only components: the quick-entry counter (sale / purchase) and the site sync page.
    Everything shared (cards, chips, badges, stepper, totals, motion tokens) comes from /static/css/clay.css. */
 
+/* ERP pages use a calmer surface hierarchy than the shared clay theme. Keep the shared
+   components and all their interactions; reduce competing shadows, color and rounding. */
+.erp-ui .card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(var(--tint), .045);
+}
+.erp-ui .card.tight { padding: 15px; }
+.erp-ui .card-head { margin-bottom: 12px; }
+.erp-ui .kpi {
+  min-height: 112px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--clay);
+  box-shadow: 0 2px 8px rgba(var(--tint), .045);
+}
+.erp-ui .kpi.coral, .erp-ui .kpi.orchid, .erp-ui .kpi.indigo,
+.erp-ui .kpi.mint, .erp-ui .kpi.sand { --t1: var(--clay); --t2: var(--clay); }
+.erp-ui .kpi .k-icon { background: var(--clay-2); color: var(--primary-ink); box-shadow: none; }
+.erp-ui .hero {
+  padding: 22px 24px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--clay);
+  box-shadow: 0 2px 8px rgba(var(--tint), .045);
+}
+.erp-ui .hero .blob-deco { display: none; }
+.erp-ui .quick { gap: 10px; margin-top: 16px; }
+.erp-ui .quick button {
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--clay-2);
+  box-shadow: none;
+}
+.erp-ui .quick button:hover { box-shadow: 0 2px 8px rgba(var(--tint), .08); }
+.erp-ui .quick button .q-ico {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  color: var(--primary-ink);
+  background: var(--primary-soft) !important;
+  box-shadow: none;
+}
+.erp-ui .quick button small { font-size: 11.5px; }
+.erp-dashboard { gap: 16px; }
+.erp-dashboard .hero h1 { font-size: 21px; }
+.erp-dashboard .erp-kpis { gap: 12px; }
+.erp-dashboard .erp-analysis { gap: 14px; }
+.erp-dashboard .erp-ops { gap: 14px; }
+.erp-dashboard .erp-ops > .card { min-width: 0; }
+.erp-dashboard .chart-box { height: 220px; }
+.erp-ui .list-item { border-radius: 10px; }
+
+@media (max-width: 900px) {
+  .erp-ui .card { padding: 16px; border-radius: 16px; }
+  .erp-ui .card.tight { padding: 13px; }
+  .erp-ui .hero { padding: 18px; border-radius: 16px; }
+  .erp-ui .quick button { flex-direction: row; align-items: center; padding: 10px; }
+  .erp-ui .quick button small { display: none; }
+  .erp-dashboard .erp-kpis { gap: 10px; }
+  .erp-dashboard .erp-ops { gap: 12px; }
+}
+
 /* ---------------------------------------------------------------- quick entry: mode switch */
 .pos-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
 .pos-mode button { height: 40px; padding: 0 18px; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }

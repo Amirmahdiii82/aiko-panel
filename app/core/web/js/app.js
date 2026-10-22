@@ -394,6 +394,7 @@ async function route() {
   if (current && current.cleanup) current.cleanup();
   closeAllSheets();
   const view = $("#view");
+  view.classList.toggle("erp-ui", mod === "erp");
   view.innerHTML = `<div class="stack"><div class="skeleton" style="height:120px"></div><div class="skeleton" style="height:320px"></div></div>`;
   window.scrollTo({ top: 0 });
   const token = Symbol();
