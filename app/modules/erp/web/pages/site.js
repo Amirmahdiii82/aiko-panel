@@ -1,7 +1,7 @@
 // Website connection. One rule (stocksync.py): the panel keeps stock, the site shows it. This page is built around
 // that: a status card, a one-time start (which numbers are right today), one list of what is left to do, and — folded
 // away — the linked products, the full history sync and the log. The site address and keys live in Settings.
-import { api, confirmBox, delegate, fa, html, icon, isOwner, jdate, num, on, parseNum, timeOf, toast } from "/static/js/kit.js";
+import { api, confirmBox, delegate, fa, html, icon, isOwner, jdate, num, on, parseNum, sheet, timeOf, toast } from "/static/js/kit.js";
 import { thumb } from "/static/js/kit.js";
 import { refreshMe, wooBadge } from "../erp.js";
 
@@ -79,6 +79,11 @@ export async function render(view, params, { setTitle }) {
     toast("ثبت شد؛ سایت هم همین عدد را می‌گیرد");
     setTimeout(reload, 2500);
   });
+  delegate(view, "change", "[data-count-file]", async (e, input) => {
+    const file = input.files[0];
+    input.value = "";
+    if (file) openCountPreview(file, reload);
+  });
   let timer;
   const off = on("live:erp", (ev) => {
     if (ev.type === "site_sync" || (ev.type === "product" && ev.woo_state) || (ev.type === "refresh" && ev.scope === "products")) {
@@ -116,12 +121,62 @@ function statusCard(st) {
       </div>
       <button class="btn soft sm" data-act="sync-now" ${st.busy ? "disabled" : ""}>${icon("refresh-cw", "sm")} همگام‌سازی همین الان</button>
     </div>
+    ${countSheet(false)}
     <ul class="sync-rules">
       <li>${icon("package", "sm")}<span>موجودی را <b>فقط در پنل</b> تغییر دهید: فروش، «خرید کالا» یا اصلاح موجودی. چند ثانیه بعد سایت همان عدد را نشان می‌دهد.</span></li>
       <li>${icon("globe", "sm")}<span>سفارش‌های سایت خودکار فروش ثبت و از موجودی کم می‌شوند.</span></li>
       <li>${icon("tag", "sm")}<span>محصول جدید، رنگ، نام و قیمت را در سایت تعریف کنید؛ خودکار به پنل می‌آید.</span></li>
     </ul>
   </section>`;
+}
+
+/** Count everything by hand with an Excel sheet: download, fill in, upload. */
+function countSheet(first) {
+  return html`<div class="count-sheet ${first ? "first" : ""}">
+    <div class="sync-head">${icon("file-spreadsheet")}<div><b>${first ? "پیشنهادی: " : ""}شمارش دستی با اکسل</b>
+      <p class="small muted">فایل همه محصولات پنل و سایت را بگیرید، تعداد واقعی هر کدام را بنویسید و همین‌جا بارگذاری کنید؛ پنل و سایت هر دو همان عدد را می‌گیرند.</p></div></div>
+    <div class="row">
+      <a class="btn sm soft" href="/api/erp/stock-count.xlsx" download>${icon("download", "sm")} دریافت فایل اکسل</a>
+      <label class="btn sm primary">${icon("upload", "sm")} بارگذاری فایل پرشده<input type="file" accept=".xlsx" hidden data-count-file></label>
+    </div>
+  </div>`;
+}
+
+function openCountPreview(file, done) {
+  const s = sheet({ title: "شمارش انبار", size: "wide", body: '<div class="skeleton" style="height:200px"></div>' });
+  const body = s.root.querySelector(".sheet-body");
+  const send = (confirm) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api(`/api/erp/stock-count${confirm ? "?confirm=true" : ""}`, { method: "POST", form });
+  };
+  send(false).then((r) => {
+    body.innerHTML = String(html`<div class="stack s12">
+      <div class="callout ${r.changed ? "" : "ok"}">${icon(r.changed ? "info" : "circle-check")}<div>
+        <b>${fa(r.counted)} محصول شمرده شده</b>؛ موجودی ${fa(r.changed)} محصول عوض می‌شود${r.counted - r.changed ? ` و ${fa(r.counted - r.changed)} محصول همان می‌ماند` : ""}.
+        ${r.site ? html`<br>${fa(r.site)} محصول سایت هم چند ثانیه بعد همین اعداد را می‌گیرد.` : ""}</div></div>
+      ${r.problems.length ? html`<div class="callout warn">${icon("triangle-alert")}<div><b>${fa(r.problems.length)} ردیف خوانده نشد</b> (بقیه ثبت می‌شوند):
+        <ul class="small" style="margin:6px 0 0;padding-inline-start:18px">${r.problems.slice(0, 12).map((x) => html`<li>${x}</li>`)}</ul></div></div>` : ""}
+      ${r.changes.length ? html`<div class="table-wrap" style="max-height:340px;overflow-y:auto"><table class="t">
+        <thead><tr><th>محصول</th><th class="n">پنل الان</th><th class="n">شمرده‌شده</th><th class="n">سایت الان</th></tr></thead>
+        <tbody>${r.changes.map((c) => html`<tr><td class="small">${c.name}</td><td class="n">${fa(c.panel)}</td>
+          <td class="n bold">${fa(c.counted)}</td><td class="n muted">${c.site == null ? "—" : fa(c.site)}</td></tr>`)}</tbody></table></div>` : ""}
+    </div>`);
+    const foot = document.createElement("div");
+    foot.className = "sheet-foot";
+    foot.innerHTML = String(html`<button class="btn primary" id="ok">${icon("check")} ثبت در پنل و سایت</button><button class="btn ghost" data-close>انصراف</button>`);
+    s.root.appendChild(foot);
+    foot.querySelector("[data-close]").onclick = () => s.close();
+    foot.querySelector("#ok").onclick = async (e) => {
+      e.target.disabled = true;
+      try {
+        const done2 = await send(true);
+        toast(`شمارش ثبت شد؛ ${fa(done2.changed)} محصول عوض شد و سایت هم به‌روز می‌شود`);
+        s.close();
+        done();
+      } catch (err) { e.target.disabled = false; }
+    };
+  }).catch(() => s.close());
 }
 
 function startCard(st, cat) {
@@ -140,7 +195,9 @@ function startCard(st, cat) {
       <thead><tr><th>محصول</th><th class="n">پنل</th><th class="n">سایت</th></tr></thead>
       <tbody>${differ.map((p) => html`<tr><td><div class="prod-cell">${thumb(p, "sm")}<span class="small">${p.name}</span></div></td>
         <td class="n bold">${fa(p.stock)}</td><td class="n bold">${fa(p.woo_stock)}</td></tr>`)}</tbody></table></div>` : ""}
-    <div class="start-choice mt16">
+    ${countSheet(true)}
+    <p class="small muted mt16">یا اگر شمردن لازم نیست، یکی را انتخاب کنید:</p>
+    <div class="start-choice mt8">
       <button class="choice" data-act="start" data-side="site">${icon("globe")}<b>عدد سایت درست است</b><span>موجودی پنل از روی سایت پر می‌شود</span></button>
       <button class="choice" data-act="start" data-side="panel">${icon("package")}<b>عدد پنل درست است</b><span>موجودی سایت از روی پنل تنظیم می‌شود</span></button>
     </div>

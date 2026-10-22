@@ -277,3 +277,49 @@ def test_a_product_webhook_queues_that_product_for_a_reread(site, owner):
     r = owner.post("/api/erp/woo/webhook", content=body,
                    headers={"x-wc-webhook-topic": "product.updated", "x-wc-webhook-signature": "forged"})
     assert r.status_code == 401
+
+
+def test_one_count_sheet_sets_both_the_panel_and_the_site(site, owner):
+    import io
+    import openpyxl
+    site.add(10, "رژ لب", 5)
+    site.add(20, "براش", manage=False)
+    site.add(30, "ریمل", 2)
+    run(stocksync.refresh(full=True))
+    with db.tx() as con:
+        only_here = ledger.create_product(con, {"name": "محصول فقط انبار", "stock": 4}, None, quiet=True)
+    r = owner.get("/api/erp/stock-count.xlsx")
+    assert r.status_code == 200
+    wb = openpyxl.load_workbook(io.BytesIO(r.content))
+    ws = wb["شمارش موجودی"]
+    rows = {row[0].value: row for row in ws.iter_rows(min_row=2)}
+    assert set(rows) == {product(10)["id"], product(20)["id"], product(30)["id"], only_here}
+    rows[product(10)["id"]][8].value = 7                 # counted on the shelf
+    rows[product(20)["id"]][8].value = "۳"               # Persian digits are fine
+    rows[only_here][8].value = "چند تا"                   # a mistake is reported, the rest still goes in
+    # 30 left empty: stays as it is
+    buf = io.BytesIO()
+    wb.save(buf)
+    files = {"file": ("count.xlsx", buf.getvalue(), "application/octet-stream")}
+    preview = owner.post("/api/erp/stock-count", files=files, headers=H).json()
+    assert preview["counted"] == 2 and preview["changed"] == 2 and len(preview["problems"]) == 1
+    assert product(10)["stock"] == 5                     # nothing saved by the preview
+    r = owner.post("/api/erp/stock-count?confirm=true", files=files, headers=H)
+    assert r.status_code == 200, r.text
+    assert product(10)["stock"] == 7 and product(20)["stock"] == 3 and product(30)["stock"] == 2
+    assert stocksync.started()
+    run(stocksync.push_pending())
+    assert site.products[10]["stock_quantity"] == 7
+    assert site.products[20]["manage_stock"] is True and site.products[20]["stock_quantity"] == 3   # now counted there too
+    assert site.products[30]["stock_quantity"] == 2 and product(10)["woo_state"] == "ok"
+
+
+def test_a_sheet_that_is_not_the_panels_is_refused(owner):
+    import io
+    import openpyxl
+    wb = openpyxl.Workbook()
+    wb.active.append(["نام", "تعداد"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    r = owner.post("/api/erp/stock-count", files={"file": ("x.xlsx", buf.getvalue(), "application/octet-stream")}, headers=H)
+    assert r.status_code == 400 and "شناسه" in r.json()["detail"]

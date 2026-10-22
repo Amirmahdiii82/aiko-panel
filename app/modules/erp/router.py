@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
 from ...core import events
-from . import config, db, exporter, importer, ledger, notify, reports, sitesync, stocksync, woo
+from . import config, db, exporter, importer, ledger, notify, reports, sitesync, stockcount, stocksync, woo
 from .deps import Admin, User
 
 router = APIRouter()
@@ -636,6 +636,23 @@ async def woo_start(request: Request, user=Admin):
         raise woo.WooError("یک همگام‌سازی همین الان در حال انجام است؛ چند لحظه دیگر دوباره بزنید")
     body = await request.json()
     return await stocksync.start(body.get("side"), user, _webhook_url(request))
+
+
+@router.get("/stock-count.xlsx")
+def stock_count_sheet(user=Admin):
+    """Every product with its panel and site stock and an empty column to write the counted number."""
+    return Response(stockcount.workbook_bytes(),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="aiko-stock-count-{db.today()}.xlsx"'})
+
+
+@router.post("/stock-count")
+async def stock_count_upload(file: UploadFile = File(...), confirm: bool = False, user=Admin):
+    """The filled-in count sheet: first a preview of what changes; with confirm=true the panel and the site take it."""
+    counts, problems = stockcount.read_counts(await file.read())
+    if not confirm:
+        return {**stockcount.preview(counts), "problems": problems}
+    return {**stockcount.apply(counts, user), "problems": problems}
 
 
 @router.post("/woo/count")

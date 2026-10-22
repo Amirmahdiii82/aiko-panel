@@ -99,6 +99,10 @@ select.tl-input { appearance: none; cursor: pointer; }
 /* icon + text side by side; the text wraps (no .nowrap here: that class also stops text from wrapping) */
 .sync-head { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
 .sync-head > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.count-sheet { margin-top: 16px; padding: 14px 16px; border-radius: var(--r-lg); background: var(--clay-2); box-shadow: var(--inset-shadow); display: flex; flex-direction: column; gap: 12px; }
+.count-sheet.first { background: var(--primary-soft); box-shadow: none; }
+.count-sheet .sync-head svg { color: var(--primary); margin-top: 2px; }
+.count-sheet label.btn { cursor: pointer; }
 .sync-rules { list-style: none; margin: 16px 0 0; padding: 14px 0 0; border-top: 1px dashed var(--line-2); display: flex; flex-direction: column; gap: 8px; }
 .sync-rules li { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.7; color: var(--ink-2); }
 .sync-rules li svg { margin-top: 4px; color: var(--primary); }
