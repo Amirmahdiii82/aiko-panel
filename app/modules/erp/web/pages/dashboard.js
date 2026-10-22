@@ -53,9 +53,8 @@ function adminHome(d) {
   if (inv.low_count) alerts.push({ ico: "triangle-alert", cls: "warn", text: `${fa(inv.low_count)} محصول رو به اتمام`, link: "#/erp/products?f=low" });
   if (site.errors) alerts.push({ ico: "cloud-off", cls: "bad", text: `${fa(site.errors)} خطای همگام‌سازی سایت`, link: "#/erp/site" });
   if (!site.configured) alerts.push({ ico: "globe", cls: "info", text: "سایت هنوز وصل نشده — موجودی سایت خودکار به‌روز نمی‌شود", link: "#/erp/site" });
-  else if (!site.stock_sync) alerts.push({ ico: "globe", cls: "warn", text: "همگام‌سازی موجودی با سایت خاموش است", link: "#/erp/site" });
-  if (site.conflicts) alerts.push({ ico: "scale", cls: "warn", text: `${fa(site.conflicts)} محصول: موجودی انبار و سایت فرق دارد — یک بار انتخاب کنید`, link: "#/erp/site?tab=conflict" });
-  if (site.nocount) alerts.push({ ico: "hash", cls: "info", text: `${fa(site.nocount)} محصول در سایت تعداد موجودی ندارد`, link: "#/erp/site?tab=nocount" });
+  else if (!site.started) alerts.push({ ico: "globe", cls: "warn", text: "همگام‌سازی موجودی با سایت هنوز شروع نشده — یک انتخاب لازم است", link: "#/erp/site" });
+  if (site.nocount) alerts.push({ ico: "hash", cls: "info", text: `${fa(site.nocount)} محصول در سایت تعداد موجودی ندارد`, link: "#/erp/site" });
   if (site.unlinked && site.configured) alerts.push({ ico: "unlink", cls: "info", text: `${fa(site.unlinked)} محصول به سایت وصل نیست`, link: "#/erp/site" });
   if (money.receivable) alerts.push({ ico: "clock", cls: "warn", text: `${toman(money.receivable)} فروش پرداخت‌نشده`, link: "#/erp/sales?unpaid=1" });
   if (money.with_agents > 0) alerts.push({ ico: "hand-coins", cls: "info", text: `${toman(money.with_agents)} پول نزد فروشنده‌ها`, link: "#/erp/money" });

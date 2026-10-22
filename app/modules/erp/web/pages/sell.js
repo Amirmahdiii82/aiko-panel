@@ -401,7 +401,7 @@ export async function render(view, params, { setTitle, query }) {
 
   function siteBadge(p) {
     if (!p?.woo_id || !erp.me.site.configured) return html`<span class="badge">به سایت وصل نیست</span>`;
-    return erp.me.site.stock_sync ? html`<span class="badge info">${icon("loader-circle")}سایت…</span>` : html`<span class="badge warn">همگام‌سازی سایت خاموش</span>`;
+    return erp.me.site.started ? html`<span class="badge info">${icon("loader-circle")}سایت…</span>` : html`<span class="badge warn">همگام‌سازی شروع نشده</span>`;
   }
   function liveSite(s) {
     return on("live:erp", (ev) => {

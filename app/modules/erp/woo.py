@@ -3,7 +3,7 @@
 * Website orders flow from the site to here: a webhook delivers them instantly, and the sync worker also polls
   recent orders every few minutes in case a webhook was missed. Each order becomes one sale with the site's exact
   figures (line prices, coupons, shipping, fees, refunds).
-* Stock is synced both ways by stocksync.py (changes made here and changes made on the site are both kept).
+* Stock: the panel is the one place it is kept; stocksync.py sets the site to the panel's number.
 * The site address and API keys are the shared WooCommerce connection (Settings → Connections); only the sync
   options (two-way stock on/off, polling interval, webhook secret, last sync) are ERP settings.
 * A full sync (sitesync.py) brings in every site product and every order since the shop opened.
@@ -306,13 +306,11 @@ def link_product(con, product_id: int, woo_id: int, variation_id: int | None, ca
         raise ledger.LedgerError(f"این محصول سایت قبلاً به «{clash[0]}» وصل شده")
     entry = next((e for e in (catalog or {}).get("items", [])
                   if e["woo_id"] == woo_id and e["variation_id"] == variation_id), {})
-    # a new link starts a new agreement: from here on, changes on either side are kept (stocksync.py)
     con.execute("""UPDATE products SET woo_id = ?, woo_variation_id = ?, woo_name = ?, woo_url = ?,
-                   image = COALESCE(?, image), woo_stock = ?, woo_state = NULL, woo_error = NULL, woo_drift = NULL,
-                   woo_price = NULL, woo_review = 1, woo_base_move = (SELECT IFNULL(MAX(id), 0) FROM stock_moves WHERE product_id = ?),
-                   updated_at = ? WHERE id = ?""",
+                   image = COALESCE(?, image), woo_stock = ?, woo_state = NULL, woo_error = NULL, woo_price = NULL,
+                   woo_manage = NULL, woo_counted = 0, updated_at = ? WHERE id = ?""",
                 (woo_id, variation_id, entry.get("name"), entry.get("url"), entry.get("image"), entry.get("stock"),
-                 product_id, db.now(), product_id))
+                 db.now(), product_id))
     notify.publish_after(con, {"type": "refresh", "scope": "products"})
 
 

@@ -76,11 +76,10 @@ async def run(user: dict | None = None) -> dict:
             woo.wlog("full_sync", False, msg)
             _set_state(running=False, step="", error=msg, finished_at=db.now())
             return {"error": msg}
-    drift = report.pop("drift_parents", [])
     _set_state(running=False, step="", error="", finished_at=db.now(), report=report)
     woo.wlog("full_sync", True, summary_text(report))
     from . import stocksync
-    stocksync.after_full_sync(drift)
+    stocksync.after_full_sync()
     return report
 
 
@@ -112,8 +111,7 @@ def apply(catalog: dict, orders: list[dict], user: dict | None = None) -> dict:
     from . import stocksync
     with db.tx() as con:
         stock = stocksync.reconcile(con, entries, full=True)
-    report["stock_adopted"] = len(stock["adopted"])
-    report["drift_parents"] = sorted(stock["drift"])
+    report["stock_corrected"] = len(stock["corrected"])
     with db.read() as con:
         report.update(review(con))
     with db.tx() as con:

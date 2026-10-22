@@ -36,14 +36,12 @@ export function stockBadge(p) {
   if (p.stock <= p.low_stock) return html`<span class="badge warn">${fa(p.stock)} عدد</span>`;
   return html`<span class="badge ok">${fa(p.stock)} عدد</span>`;
 }
-/** Two-way stock sync state of a linked product (see stocksync.py). */
+/** Stock sync state of a linked product (see stocksync.py: the panel keeps stock, the site shows it). */
 export const WOO_STATE = {
   ok: { cls: "ok", ico: "globe", label: "هماهنگ", tip: "موجودی اینجا و سایت یکی است" },
-  pending: { cls: "info", ico: "loader-circle", label: "در حال ارسال", tip: "تغییر اینجا چند ثانیه دیگر در سایت هم اعمال می‌شود" },
-  force: { cls: "info", ico: "loader-circle", label: "در حال ارسال", tip: "عدد اینجا روی سایت گذاشته می‌شود" },
-  conflict: { cls: "warn", ico: "scale", label: "اختلاف با سایت", tip: "از قبل، عدد اینجا و سایت فرق داشت؛ یک بار انتخاب کنید کدام درست است (صفحه اتصال سایت)" },
-  drift: { cls: "warn", ico: "refresh-cw", label: "تغییر در سایت", tip: "موجودی در خود سایت عوض شده؛ بعد از بررسی دوم اینجا هم اعمال می‌شود" },
-  nocount: { cls: "", ico: "hash", label: "سایت تعداد ندارد", tip: "در سایت مدیریت موجودی خاموش است؛ با شمارش اینجا، سایت هم عدد می‌گیرد" },
+  pending: { cls: "info", ico: "loader-circle", label: "در حال ارسال", tip: "چند ثانیه دیگر سایت همین عدد را نشان می‌دهد" },
+  differ: { cls: "warn", ico: "scale", label: "عدد متفاوت", tip: "همگام‌سازی هنوز شروع نشده (صفحه اتصال سایت)" },
+  nocount: { cls: "", ico: "hash", label: "سایت تعداد ندارد", tip: "در سایت مدیریت موجودی خاموش است؛ در صفحه اتصال سایت یک بار بشمارید" },
   whole: { cls: "warn", ico: "split", label: "همه رنگ‌ها با هم", tip: "به کل محصول رنگ‌دار وصل است؛ برای همگام‌سازی به رنگ‌ها تفکیک کنید" },
   gone: { cls: "bad", ico: "circle-off", label: "در سایت نیست", tip: "این محصول در سایت پیدا نشد (حذف شده؟)" },
   error: { cls: "bad", ico: "cloud-off", label: "خطا", tip: "" },

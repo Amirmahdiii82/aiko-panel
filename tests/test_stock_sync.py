@@ -1,4 +1,4 @@
-"""Two-way stock sync: changes made here and on the site are both kept, against a fake WooCommerce site."""
+"""Stock sync: the panel keeps stock, the site shows it — against a fake WooCommerce site."""
 import asyncio
 import re
 
@@ -97,6 +97,13 @@ def moves(pid, kind):
         return [r[0] for r in con.execute("SELECT qty FROM stock_moves WHERE product_id = ? AND kind = ?", (pid, kind))]
 
 
+USER = {"id": None, "name": "امیر"}
+
+
+def start(side):
+    return run(stocksync.start(side, USER))
+
+
 def test_a_new_site_product_arrives_with_the_sites_stock(site):
     site.add(10, "رژ لب", 5)
     run(stocksync.refresh(full=True))
@@ -104,75 +111,100 @@ def test_a_new_site_product_arrives_with_the_sites_stock(site):
     assert p["stock"] == 5 and p["woo_state"] == "ok" and p["woo_stock"] == 5
 
 
-def test_an_edit_on_the_site_is_taken_over_after_a_second_read(site):
+def test_nothing_is_sent_before_the_one_time_start(site):
     site.add(10, "رژ لب", 5)
     run(stocksync.refresh(full=True))
-    site.products[10]["stock_quantity"] = 8              # restocked in the WordPress admin
+    with db.tx() as con:
+        ledger.add_move(con, product(10)["id"], -2, "adjust", quiet=True)
     run(stocksync.refresh(full=True))
-    assert product(10)["stock"] == 5 and product(10)["woo_state"] == "drift"     # seen once: not yet
-    run(stocksync.refresh(parents={10}))
-    p = product(10)
-    assert p["stock"] == 8 and p["woo_state"] == "ok" and moves(p["id"], "site_sync") == [3]
+    run(stocksync.push_pending())
+    assert site.writes == [] and product(10)["woo_state"] == "differ" and product(10)["stock"] == 3
 
 
-def test_a_sale_here_is_added_to_the_sites_number_instead_of_overwriting_it(site):
+def _differing(site):
     site.add(10, "رژ لب", 5)
     run(stocksync.refresh(full=True))
+    with db.tx() as con:
+        ledger.add_move(con, product(10)["id"], 3, "adjust", quiet=True)      # here 8, on the site 5
+
+
+def test_starting_with_the_sites_numbers(site):
+    _differing(site)
+    r = start("site")
+    assert r["changed"] == 1 and product(10)["stock"] == 5 and product(10)["woo_state"] == "ok" and site.writes == []
+
+
+def test_starting_with_the_panels_numbers(site, owner):
+    _differing(site)
+    r = owner.post("/api/erp/woo/start", json={"side": "panel"}, headers=H)
+    assert r.status_code == 200, r.text
+    assert site.products[10]["stock_quantity"] == 8 and product(10)["woo_state"] == "ok"
+    assert {w["topic"] for w in site.webhooks} == set(woo.WEBHOOK_TOPICS)     # instant updates set up on the way
+
+
+def test_every_change_here_sets_the_site_to_the_panels_number(site):
+    site.add(10, "رژ لب", 5)
+    start("site")
     pid = product(10)["id"]
-    site.products[10]["stock_quantity"] = 8              # someone restocked on the site meanwhile
     with db.tx() as con:
         ledger.create_sale(con, {"channel": "in_person", "items": [{"product_id": pid, "qty": 2, "unit_price": 1}]},
                            None, quiet=True)
-    assert product(10)["woo_state"] == "pending"
     run(stocksync.push_pending())
-    assert site.products[10]["stock_quantity"] == 6      # 8 on the site − 2 sold here (not 5 − 2)
-    run(stocksync.refresh(full=True))
-    run(stocksync.refresh(full=True))
-    assert product(10)["stock"] == 6 and product(10)["woo_state"] == "ok"
+    assert site.products[10]["stock_quantity"] == 3
+    with db.tx() as con:
+        ledger.create_purchase(con, {"items": [{"product_id": pid, "qty": 10, "unit_cost": 1}]}, None, quiet=True)
+    run(stocksync.push_pending())
+    assert site.products[10]["stock_quantity"] == 13 and product(10)["woo_state"] == "ok"
 
 
-def test_a_website_order_is_counted_once_even_when_it_lands_mid_check(site):
+def test_a_website_order_is_counted_once(site):
     site.add(10, "رژ لب", 5)
+    start("site")
+    site.order(501, 10, 1)                                 # the site took it out of stock itself
     run(stocksync.refresh(full=True))
-    site.order(501, 10, 1)                                 # the site shows 4 before the order is imported here
-    with db.tx() as con:
-        stocksync.reconcile(con, [*run(_read(site))], full=True)
-    assert product(10)["stock"] == 5 and product(10)["woo_state"] == "drift"
-    run(woo.pull_orders())                                 # the order arrives
-    run(stocksync.refresh(full=True))
+    run(stocksync.push_pending())
     p = product(10)
-    assert p["stock"] == 4 and p["woo_state"] == "ok" and moves(p["id"], "site_sync") == []
-    assert site.writes == []                               # nothing was sent: the site already knew
+    assert p["stock"] == 4 and site.products[10]["stock_quantity"] == 4 and p["woo_state"] == "ok"
 
 
-async def _read(site):
-    async with woo.Woo() as client:
-        return await woo.read_site(client)
+def test_stock_typed_by_hand_on_the_site_goes_back_to_the_panels_number(site):
+    site.add(10, "رژ لب", 5)
+    start("site")
+    site.products[10]["stock_quantity"] = 9                # edited in the WordPress admin
+    report = run(stocksync.refresh(full=True))
+    assert len(report["corrected"]) == 1
+    run(stocksync.push_pending())
+    assert site.products[10]["stock_quantity"] == 5 and product(10)["stock"] == 5
+    with db.read() as con:
+        assert con.execute("SELECT COUNT(*) FROM core.activity WHERE kind = 'site_stock' AND title LIKE '%دستی%'").fetchone()[0] == 1
 
 
-def test_an_item_the_site_does_not_count_is_left_alone_until_counted_here(site):
+def test_an_item_the_site_does_not_count_is_left_alone_until_counted_here(site, owner):
     site.add(20, "براش", manage=False)
-    run(stocksync.refresh(full=True))
+    start("panel")
     p = product(20)
-    assert p["woo_state"] == "nocount" and p["stock"] == 0 and site.writes == []
+    assert p["woo_state"] == "nocount" and site.writes == []
     with db.tx() as con:
-        ledger.adjust_stock(con, p["id"], set_to=7, reason="شمارش", user={"id": None, "name": "امیر"})
+        ledger.add_move(con, p["id"], 1, "adjust", quiet=True)          # a change alone does not switch counting on
+    run(stocksync.push_pending())
+    run(stocksync.refresh(parents={20}))
+    assert site.writes == [] and product(20)["woo_state"] == "nocount"
+    r = owner.post("/api/erp/woo/count", json={"product_id": p["id"], "qty": 7}, headers=H)
+    assert r.status_code == 200, r.text
     run(stocksync.push_pending())
     assert site.products[20]["manage_stock"] is True and site.products[20]["stock_quantity"] == 7
-    assert product(20)["woo_state"] == "ok"
+    assert product(20)["stock"] == 7 and product(20)["woo_state"] == "ok"
 
 
 def test_a_product_deleted_on_the_site_is_marked_and_never_pushed(site):
     site.add(10, "رژ لب", 5)
     site.add(11, "ریمل", 2)
-    run(stocksync.refresh(full=True))
+    start("site")
     del site.products[10]
     run(stocksync.refresh(full=True))
     assert product(10)["woo_state"] == "gone"
-    with db.tx() as con:
-        ledger.add_move(con, product(10)["id"], -1, "adjust", quiet=True)
     run(stocksync.push_pending())
-    assert site.writes == [] and product(10)["woo_state"] == "gone"
+    assert site.writes == []
 
 
 def test_an_empty_answer_from_the_site_never_marks_everything_deleted(site):
@@ -191,71 +223,27 @@ def test_a_product_linked_as_a_whole_to_one_with_colors_is_read_only(site):
     with db.tx() as con:
         pid = ledger.create_product(con, {"name": "رژ مایع قدیمی", "stock": 9}, None, quiet=True)
         woo.link_product(con, pid, 30, None, None)
-    run(stocksync.refresh(full=True))
+    start("panel")
     p = product(30)
     assert p["id"] == pid and p["woo_state"] == "whole" and p["woo_stock"] == 6 and p["stock"] == 9
     with db.tx() as con:
-        ledger.create_sale(con, {"channel": "in_person", "items": [{"product_id": pid, "qty": 1, "unit_price": 1}]},
-                           None, quiet=True)
+        ledger.add_move(con, pid, -1, "adjust", quiet=True)
     run(stocksync.push_pending())
+    run(stocksync.refresh(parents={30}))
     assert site.writes == [] and product(30)["woo_state"] == "whole"
 
 
-def _old_link(site, here=1, there=3):
-    """A product linked before two-way sync: 1 here, 3 on the site, and 10 bought here after the site was last read."""
-    site.add(10, "رژ لب", there)
+def test_a_new_link_is_read_before_anything_is_sent(site):
+    site.add(20, "براش", manage=False)
+    start("site")
+    stocksync._touched.clear()
     with db.tx() as con:
-        pid = ledger.create_product(con, {"name": "رژ لب", "stock": here}, None, quiet=True)
-        con.execute("UPDATE products SET woo_id = 10, woo_stock = ? WHERE id = ?", (there, pid))
-        db.set_setting("woo_catalog", {"fetched_at": "2000-01-01T00:00:00+03:30", "items": []}, con)
-        con.execute("UPDATE stock_moves SET created_at = '1999-01-01T00:00:00+03:30' WHERE product_id = ?", (pid,))
-        ledger.create_purchase(con, {"items": [{"product_id": pid, "qty": 10, "unit_cost": 1}]}, None, quiet=True)
-    stocksync.init_bases()                                 # what startup does after the update is deployed
-    run(stocksync.refresh(full=True))
+        pid = ledger.create_product(con, {"name": "براش قدیمی", "stock": 0}, None, quiet=True)
+        con.execute("UPDATE products SET woo_id = NULL WHERE woo_id = 20")
+        woo.link_product(con, pid, 20, None, None)
+        ledger.add_move(con, pid, 1, "adjust", quiet=True)
     run(stocksync.push_pending())
-    return pid
-
-
-def test_an_old_difference_is_never_settled_by_guessing_but_changes_made_since_still_reach_the_site(site):
-    pid = _old_link(site)
-    assert site.products[10]["stock_quantity"] == 13       # the site's 3 + the 10 bought here, never sent before
-    for _ in range(3):
-        run(stocksync.refresh(full=True))
-    p = product(10)
-    assert p["stock"] == 11 and p["woo_state"] == "conflict" and p["woo_drift"] == 2 and moves(pid, "site_sync") == []
-
-
-def test_settling_an_old_difference_for_the_site(site, owner):
-    pid = _old_link(site)
-    r = owner.post("/api/erp/woo/resolve", json={"side": "site"}, headers=H)
-    assert r.status_code == 200 and r.json()["count"] == 1
-    run(stocksync.refresh(parents={10}))
-    p = product(10)
-    assert p["stock"] == 13 and p["woo_state"] == "ok" and moves(pid, "site_sync") == [2]
-    site.products[10]["stock_quantity"] = 20                # from now on, site edits flow in as usual
-    run(stocksync.refresh(full=True))
-    run(stocksync.refresh(full=True))
-    assert product(10)["stock"] == 20
-
-
-def test_settling_an_old_difference_for_the_number_here(site, owner):
-    _old_link(site)
-    r = owner.post("/api/erp/woo/resolve", json={"side": "here", "product_ids": [product(10)["id"]]}, headers=H)
-    assert r.status_code == 200 and r.json()["count"] == 1
-    run(stocksync.push_pending())
-    assert site.products[10]["stock_quantity"] == 11 and product(10)["woo_state"] == "ok"
-    run(stocksync.refresh(full=True))
-    assert product(10)["woo_state"] == "ok" and product(10)["stock"] == 11
-
-
-def test_a_new_link_with_different_numbers_asks_too(site):
-    site.add(10, "رژ لب", 3)
-    with db.tx() as con:
-        pid = ledger.create_product(con, {"name": "رژ لب قدیمی اکسل", "stock": 5}, None, quiet=True)
-        woo.link_product(con, pid, 10, None, None)
-    run(stocksync.refresh(full=True))
-    run(stocksync.refresh(full=True))
-    assert product(10)["woo_state"] == "conflict" and product(10)["stock"] == 5
+    assert site.writes == [] and 20 in stocksync._touched     # read first: the site does not count this one
 
 
 def test_a_price_change_on_the_site_updates_the_price_here(site):
@@ -266,25 +254,11 @@ def test_a_price_change_on_the_site_updates_the_price_here(site):
     assert product(10)["price"] == 120_000
 
 
-def test_force_push_and_sync_now_from_the_site_page(site, owner):
+def test_sync_now_from_the_site_page(site, owner):
     site.add(10, "رژ لب", 5)
     r = owner.post("/api/erp/woo/sync-now", headers=H)
     assert r.status_code == 200, r.text
     assert r.json()["checked"] == 1
-    pid = product(10)["id"]
-    with db.tx() as con:
-        con.execute("UPDATE products SET woo_state = 'force' WHERE id = ?", (pid,))
-        ledger.add_move(con, pid, 4, "adjust", note="شمارش", quiet=True)
-        con.execute("UPDATE products SET woo_state = 'force' WHERE id = ?", (pid,))
-    run(stocksync.push_pending())
-    assert site.products[10]["stock_quantity"] == 9
-
-
-def test_webhooks_are_created_on_the_site(site, owner):
-    r = owner.post("/api/erp/woo/webhooks", headers=H)
-    assert r.status_code == 200, r.text
-    assert {w["topic"] for w in site.webhooks} == set(woo.WEBHOOK_TOPICS)
-    assert all(w["delivery_url"].endswith("/api/erp/woo/webhook") and w["secret"] for w in site.webhooks)
 
 
 def test_a_product_webhook_queues_that_product_for_a_reread(site, owner):

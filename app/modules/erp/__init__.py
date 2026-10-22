@@ -75,7 +75,6 @@ async def startup() -> None:
     events.on("integrations.saved", lambda keys: stocksync.wake())
     if sitesync.state().get("running"):                 # the app restarted mid-sync
         sitesync._set_state(running=False, step="", error="همگام‌سازی با ری‌استارت برنامه نیمه‌کاره ماند؛ دوباره بزنید")
-    stocksync.init_bases()
     jobs.supervise("erp.woo", stocksync.worker)
     jobs.daily("erp.site_sync", "04:30", _nightly_site_sync)
 
@@ -96,14 +95,13 @@ def summary(user: dict) -> dict:
                                     IFNULL(SUM(CASE WHEN stock > 0 THEN stock * avg_cost END), 0)
                              FROM products WHERE active = 1""").fetchone()
         site = con.execute("""SELECT SUM(CASE WHEN woo_state IN ('error', 'gone', 'whole') THEN 1 ELSE 0 END),
-                                     SUM(CASE WHEN woo_state = 'nocount' THEN 1 ELSE 0 END),
-                                     SUM(CASE WHEN woo_state = 'conflict' THEN 1 ELSE 0 END)
+                                     SUM(CASE WHEN woo_state = 'nocount' THEN 1 ELSE 0 END)
                               FROM products WHERE active = 1 AND woo_id IS NOT NULL""").fetchone()
     s = woo.settings()
     return {"today": {"orders": t[0], "revenue": int(t[1])}, "month": month, "month_label": label,
             "out_count": inv[0] or 0, "low_count": inv[1] or 0, "stock_value": int(inv[2] or 0),
-            "site": {"configured": woo.configured(s), "stock_sync": stocksync.enabled(s),
-                     "problems": site[0] or 0, "nocount": site[1] or 0, "conflicts": site[2] or 0}}
+            "site": {"configured": woo.configured(s), "started": stocksync.started(s),
+                     "problems": site[0] or 0, "nocount": site[1] or 0}}
 
 
 def _cli_import_excel(args: list[str]) -> None:

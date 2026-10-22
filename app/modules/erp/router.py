@@ -35,7 +35,7 @@ def me(user=User):
         users = [u for u in users if u["id"] == user["id"]]
     return {"user": user, "accounts": accounts, "partners": partners, "users": users,
             "channels": ledger.CHANNELS, "settings": settings, "brands": brands, "suppliers": suppliers,
-            "today": db.today(), "site": {"configured": woo.configured(woo_s), "stock_sync": stocksync.enabled(woo_s),
+            "today": db.today(), "site": {"configured": woo.configured(woo_s), "started": stocksync.started(woo_s),
                                           "url": woo_s.get("url")}}
 
 
@@ -192,27 +192,13 @@ async def split(product_id: int, request: Request, user=Admin):
 
 @router.post("/products/{product_id}/push")
 def push_product(product_id: int, user=Admin):
-    """"The number here is right": set the site to exactly this product's stock here."""
+    """Send this product's stock to the site again (after an error)."""
     with db.tx() as con:
         p = ledger.get_product(con, product_id)
         if not p["woo_id"]:
             raise ledger.LedgerError("این محصول به سایت وصل نیست")
-        con.execute("UPDATE products SET woo_state = 'force', woo_drift = NULL, woo_review = 0 WHERE id = ?", (product_id,))
+        con.execute("UPDATE products SET woo_state = 'pending' WHERE id = ?", (product_id,))
     _push_soon()
-    return {"ok": True}
-
-
-@router.post("/products/{product_id}/use-site-stock")
-def use_site_stock(product_id: int, user=Admin):
-    """"The site's number is right": take it over here now (without waiting for the second check)."""
-    with db.tx() as con:
-        p = ledger.get_product(con, product_id)
-        if p["woo_stock"] is None:
-            raise ledger.LedgerError("موجودی سایت معلوم نیست؛ «بررسی همین الان» را در صفحه اتصال سایت بزنید")
-        ledger.adjust_stock(con, product_id, set_to=int(p["woo_stock"]), reason="هماهنگ با موجودی سایت", user=user)
-        con.execute("""UPDATE products SET woo_state = 'ok', woo_drift = NULL, woo_review = 0,
-                       woo_base_move = (SELECT IFNULL(MAX(id), 0) FROM stock_moves WHERE product_id = ?) WHERE id = ?""",
-                    (product_id, product_id))
     return {"ok": True}
 
 
@@ -591,13 +577,12 @@ def woo_status(request: Request, user=Admin):
         counts = db.one(con.execute(
             """SELECT COUNT(*) AS products, SUM(CASE WHEN woo_id IS NOT NULL THEN 1 ELSE 0 END) AS linked,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'ok' THEN 1 ELSE 0 END) AS ok,
-                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state IN ('pending', 'force') THEN 1 ELSE 0 END) AS pending,
+                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'pending' THEN 1 ELSE 0 END) AS pending,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'error' THEN 1 ELSE 0 END) AS errors,
-                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'drift' THEN 1 ELSE 0 END) AS drift,
+                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'differ' THEN 1 ELSE 0 END) AS differ,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'nocount' THEN 1 ELSE 0 END) AS nocount,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'whole' THEN 1 ELSE 0 END) AS whole,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'gone' THEN 1 ELSE 0 END) AS gone,
-                      SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'conflict' THEN 1 ELSE 0 END) AS conflict,
                       MAX(woo_checked_at) AS checked_at
                FROM products WHERE active = 1"""))
         sales = db.one(con.execute(
@@ -626,33 +611,39 @@ async def woo_save(request: Request, user=Admin):
         integrations.save_woo({k: body[k] for k in ("url", "key", "secret", "query_auth") if k in body})
     with db.tx() as con:
         s = db.get_setting("woo", {}, con) or {}
-        was_on = s.get("stock_sync", True)
-        for key in ("stock_sync", "pull_minutes", "webhook_secret"):
+        for key in ("pull_minutes", "webhook_secret"):
             if key in body:
                 s[key] = body[key].strip() if isinstance(body[key], str) else body[key]
         if not s.get("webhook_secret"):
             s["webhook_secret"] = secrets.token_urlsafe(24)
         db.set_setting("woo", s, con)
-        if "stock_sync" in body and bool(body["stock_sync"]) != bool(was_on):
-            notify.activity(con, "woo", "همگام‌سازی دوطرفه موجودی با سایت " + ("روشن شد" if body["stock_sync"] else "خاموش شد"),
-                            f"توسط {user['name']}", user_id=user["id"], level="success" if body["stock_sync"] else "warning")
     stocksync.wake()
     return _woo_public(woo.settings())
 
 
 @router.post("/woo/sync-now")
-async def woo_sync_now(user=Admin):
+async def woo_sync_now(request: Request, user=Admin):
     """Orders, every product's stock, and what is waiting to be sent — right now."""
     if woo.sync_lock().locked():
         raise woo.WooError("یک همگام‌سازی همین الان در حال انجام است؛ چند لحظه دیگر دوباره بزنید")
-    return await stocksync.sync_now()
+    return await stocksync.sync_now(_webhook_url(request))
 
 
-@router.post("/woo/resolve")
-async def woo_resolve(request: Request, user=Admin):
-    """Old differences between the numbers here and on the site: which side was right (some products, or all)."""
+@router.post("/woo/start")
+async def woo_start(request: Request, user=Admin):
+    """The one-time start of stock sync: which numbers are right today, the site's or the panel's."""
+    if woo.sync_lock().locked():
+        raise woo.WooError("یک همگام‌سازی همین الان در حال انجام است؛ چند لحظه دیگر دوباره بزنید")
     body = await request.json()
-    return {"count": stocksync.resolve(body.get("product_ids"), body.get("side"), user)}
+    return await stocksync.start(body.get("side"), user, _webhook_url(request))
+
+
+@router.post("/woo/count")
+async def woo_count(request: Request, user=Admin):
+    """An item the site sells without counting, counted here: both get this number."""
+    body = await request.json()
+    stocksync.count(int(body["product_id"]), ledger._int(body.get("qty"), "تعداد"), user)
+    return {"ok": True}
 
 
 @router.post("/woo/webhooks")
@@ -682,10 +673,10 @@ def woo_catalog(user=Admin):
     with db.read() as con:
         linked = db.rows(con.execute(
             """SELECT id, sku, name, stock, price, image, woo_id, woo_variation_id, woo_name, woo_url, woo_state,
-                      woo_error, woo_stock, woo_synced_at, woo_manage, woo_in_stock, woo_drift, woo_checked_at, woo_review
+                      woo_error, woo_stock, woo_synced_at, woo_manage, woo_in_stock, woo_checked_at
                FROM products WHERE active = 1 AND woo_id IS NOT NULL
-               ORDER BY CASE woo_state WHEN 'conflict' THEN 0 WHEN 'error' THEN 0 WHEN 'gone' THEN 1 WHEN 'drift' THEN 2 WHEN 'nocount' THEN 3
-                        WHEN 'whole' THEN 4 WHEN 'pending' THEN 5 WHEN 'force' THEN 5 ELSE 6 END, name"""))
+               ORDER BY CASE woo_state WHEN 'error' THEN 0 WHEN 'gone' THEN 1 WHEN 'differ' THEN 2 WHEN 'nocount' THEN 3
+                        WHEN 'whole' THEN 4 WHEN 'pending' THEN 5 ELSE 6 END, name"""))
         sugg = woo.suggestions(con, catalog) if catalog.get("items") else []
     used = {(p["woo_id"], p["woo_variation_id"]) for p in linked}
     whole_linked = {w for w, v in used if v is None}          # product linked as a whole: its colors are covered
