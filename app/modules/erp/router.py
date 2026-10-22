@@ -9,8 +9,9 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
-from ...core import events
-from . import config, db, exporter, importer, ledger, notify, reports, sitesync, stockcount, stocksync, woo
+from ...core import drive, events
+from . import config, db, exporter, importer, ledger, notify, receipts, reports, statements
+from .site import client, history, matching, orders, stock
 from .deps import Admin, User
 
 router = APIRouter()
@@ -29,13 +30,13 @@ def me(user=User):
         brands = [r[0] for r in con.execute("SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL ORDER BY brand")]
         suppliers = [r[0] for r in con.execute(
             "SELECT DISTINCT supplier FROM purchases WHERE supplier IS NOT NULL ORDER BY supplier")]
-    woo_s = woo.settings()
+    woo_s = client.settings()
     if user["role"] != "admin":
         accounts = [a for a in accounts if a["id"] == user["account_id"]]
         users = [u for u in users if u["id"] == user["id"]]
     return {"user": user, "accounts": accounts, "partners": partners, "users": users,
             "channels": ledger.CHANNELS, "settings": settings, "brands": brands, "suppliers": suppliers,
-            "today": db.today(), "site": {"configured": woo.configured(woo_s), "started": stocksync.started(woo_s),
+            "today": db.today(), "site": {"configured": client.configured(woo_s), "started": stock.started(woo_s),
                                           "url": woo_s.get("url")}}
 
 
@@ -206,10 +207,10 @@ def _push_soon() -> None:
     """Push pending stock now (an explicit user action)."""
     async def run():
         try:
-            async with woo.sync_lock():
-                await stocksync.push_pending()
+            async with client.sync_lock():
+                await stock.push_pending()
         except Exception as exc:  # shown in the site log
-            woo.wlog("push_stock", False, str(exc))
+            client.wlog("push_stock", False, str(exc))
     events.run_soon(run)
 
 
@@ -275,7 +276,7 @@ def sale_detail(sale_id: int, user=User):
         sale.pop("cogs", None)
         for i in items:
             i.pop("unit_cost", None)
-    return {"sale": sale, "items": items}
+    return {"sale": sale, "items": items, "drive": drive.link(receipts.ref("sale", sale_id))}
 
 
 @router.post("/sales")
@@ -298,6 +299,7 @@ async def create_sale(request: Request, user=User):
             body["account_id"] = (db.get_setting("channel_accounts", {}) or {}).get(body.get("channel") or "in_person")
     with db.tx() as con:
         sale_id = ledger.create_sale(con, body, user)
+    receipts.send("sale", sale_id)
     return {"id": sale_id}
 
 
@@ -363,7 +365,7 @@ def purchase_detail(purchase_id: int, user=Admin):
             raise HTTPException(404, "خرید پیدا نشد")
         items = db.rows(con.execute("""SELECT i.*, pr.name, pr.image, pr.sku FROM purchase_items i
                                        JOIN products pr ON pr.id = i.product_id WHERE i.purchase_id = ?""", (purchase_id,)))
-    return {"purchase": pur, "items": items}
+    return {"purchase": pur, "items": items, "drive": drive.link(receipts.ref("purchase", purchase_id))}
 
 
 @router.post("/purchases")
@@ -371,6 +373,7 @@ async def create_purchase(request: Request, user=Admin):
     body = await request.json()
     with db.tx() as con:
         pid = ledger.create_purchase(con, body, user)
+    receipts.send("purchase", pid)
     return {"id": pid}
 
 
@@ -413,6 +416,7 @@ async def create_expense(request: Request, user=Admin):
     body = await request.json()
     with db.tx() as con:
         eid = ledger.save_expense(con, body, user)
+    receipts.send("expense", eid)
     return {"id": eid}
 
 
@@ -421,7 +425,18 @@ async def update_expense(expense_id: int, request: Request, user=Admin):
     body = await request.json()
     with db.tx() as con:
         ledger.save_expense(con, body, user, expense_id)
+    receipts.send("expense", expense_id)
     return {"ok": True}
+
+
+@router.put("/{kind}/{rec_id}/receipt")
+async def set_receipt(kind: str, rec_id: int, request: Request, user=Admin):
+    """Add, replace or remove the receipt of a purchase, sale or expense after it was recorded."""
+    kinds = {"purchases": "purchase", "sales": "sale", "expenses": "expense"}
+    if kind not in kinds:
+        raise HTTPException(404)
+    receipts.attach(kinds[kind], rec_id, (await request.json()).get("receipt"), user)
+    return {"ok": True, "drive": drive.link(receipts.ref(kinds[kind], rec_id))}
 
 
 @router.delete("/expenses/{expense_id}")
@@ -437,6 +452,7 @@ def delete_expense(expense_id: int, user=Admin):
                         f"{ledger.toman(e['amount'])} — {e['description'] or ''} ({user['name']})", user_id=user["id"],
                         level="warning")
         notify.publish_after(con, {"type": "refresh", "scope": "expenses"})
+    drive.forget(receipts.ref("expense", expense_id))
     return {"ok": True}
 
 
@@ -559,6 +575,24 @@ def report(period: str = "month", start: str = "", end: str = "", user=Admin):
         return reports.report(con, s, e, label)
 
 
+@router.get("/statements")
+def financial_statements(period: str = "month", start: str = "", end: str = "", user=Admin):
+    """Balance sheet (at the end of the period), income statement and cash flow for the period."""
+    s, e, label = reports.period_bounds(period, start, end)
+    with db.read() as con:
+        return statements.statements(con, s, e, label)
+
+
+@router.get("/statements.xlsx")
+def financial_statements_xlsx(period: str = "month", start: str = "", end: str = "", user=Admin):
+    s, e, label = reports.period_bounds(period, start, end)
+    with db.read() as con:
+        data = statements.statements(con, s, e, label)
+    return Response(statements.workbook_bytes(data),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="aiko-statements-{s}-{e}.xlsx"'})
+
+
 # ---------------------------------------------------------------- WooCommerce
 
 
@@ -572,7 +606,7 @@ def _woo_public(s: dict) -> dict:
 
 @router.get("/woo")
 def woo_status(request: Request, user=Admin):
-    s = woo.settings()
+    s = client.settings()
     with db.read() as con:
         counts = db.one(con.execute(
             """SELECT COUNT(*) AS products, SUM(CASE WHEN woo_id IS NOT NULL THEN 1 ELSE 0 END) AS linked,
@@ -590,12 +624,13 @@ def woo_status(request: Request, user=Admin):
                       SUM(CASE WHEN channel = 'website' AND woo_order_id IS NULL THEN 1 ELSE 0 END) AS manual_web
                FROM sales WHERE status = 'done'"""))
         logs = db.rows(con.execute("SELECT * FROM woo_log ORDER BY id DESC LIMIT 40"))
-        review = sitesync.review(con)
+        review = history.review(con)
     catalog = db.get_setting("woo_catalog", {}) or {}
-    return {"settings": _woo_public(s), "configured": woo.configured(s), "counts": counts, "sales": sales, "log": logs,
+    return {"settings": _woo_public(s), "configured": client.configured(s), "counts": counts, "sales": sales, "log": logs,
             "webhook_url": _webhook_url(request), "catalog_fetched_at": catalog.get("fetched_at"),
-            "catalog_source": catalog.get("source"), "full_sync": sitesync.state(), "review": review,
-            "busy": woo.sync_lock().locked()}
+            "catalog_source": catalog.get("source"), "full_sync": history.state(), "review": review,
+            "missing_codes": len(stock.missing_codes()),
+            "busy": client.sync_lock().locked()}
 
 
 def _webhook_url(request: Request) -> str:
@@ -617,62 +652,53 @@ async def woo_save(request: Request, user=Admin):
         if not s.get("webhook_secret"):
             s["webhook_secret"] = secrets.token_urlsafe(24)
         db.set_setting("woo", s, con)
-    stocksync.wake()
-    return _woo_public(woo.settings())
+    stock.wake()
+    return _woo_public(client.settings())
 
 
 @router.post("/woo/sync-now")
 async def woo_sync_now(request: Request, user=Admin):
     """Orders, every product's stock, and what is waiting to be sent — right now."""
-    if woo.sync_lock().locked():
-        raise woo.WooError("یک همگام‌سازی همین الان در حال انجام است؛ چند لحظه دیگر دوباره بزنید")
-    return await stocksync.sync_now(_webhook_url(request))
+    if client.sync_lock().locked():
+        raise client.WooError("یک همگام‌سازی همین الان در حال انجام است؛ چند لحظه دیگر دوباره بزنید")
+    return await stock.sync_now(_webhook_url(request))
 
 
 @router.post("/woo/start")
 async def woo_start(request: Request, user=Admin):
     """The one-time start of stock sync: which numbers are right today, the site's or the panel's."""
-    if woo.sync_lock().locked():
-        raise woo.WooError("یک همگام‌سازی همین الان در حال انجام است؛ چند لحظه دیگر دوباره بزنید")
+    if client.sync_lock().locked():
+        raise client.WooError("یک همگام‌سازی همین الان در حال انجام است؛ چند لحظه دیگر دوباره بزنید")
     body = await request.json()
-    return await stocksync.start(body.get("side"), user, _webhook_url(request))
+    return await stock.start(body.get("side"), user, _webhook_url(request))
 
 
-@router.get("/stock-count.xlsx")
-def stock_count_sheet(user=Admin):
-    """Every product with its panel and site stock and an empty column to write the counted number."""
-    return Response(stockcount.workbook_bytes(),
-                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f'attachment; filename="aiko-stock-count-{db.today()}.xlsx"'})
-
-
-@router.post("/stock-count")
-async def stock_count_upload(file: UploadFile = File(...), confirm: bool = False, user=Admin):
-    """The filled-in count sheet: first a preview of what changes; with confirm=true the panel and the site take it."""
-    counts, problems = stockcount.read_counts(await file.read())
-    if not confirm:
-        return {**stockcount.preview(counts), "problems": problems}
-    return {**stockcount.apply(counts, user), "problems": problems}
+@router.post("/woo/codes")
+async def woo_codes(user=Admin):
+    """Write the panel's product codes (SKU) on the site where the site has none, now and for new products."""
+    if client.sync_lock().locked():
+        raise client.WooError("یک همگام‌سازی همین الان در حال انجام است؛ چند لحظه دیگر دوباره بزنید")
+    return await stock.start_codes()
 
 
 @router.post("/woo/count")
 async def woo_count(request: Request, user=Admin):
     """An item the site sells without counting, counted here: both get this number."""
     body = await request.json()
-    stocksync.count(int(body["product_id"]), ledger._int(body.get("qty"), "تعداد"), user)
+    stock.count(int(body["product_id"]), ledger._int(body.get("qty"), "تعداد"), user)
     return {"ok": True}
 
 
 @router.post("/woo/webhooks")
 async def woo_webhooks(request: Request, user=Admin):
     """Create the site's webhooks to this panel (orders and product changes arrive instantly)."""
-    return await woo.ensure_webhooks(_webhook_url(request))
+    return await client.ensure_webhooks(_webhook_url(request))
 
 
 @router.post("/woo/full-sync")
 async def woo_full_sync(user=Admin):
-    sitesync.start(user)
-    return {"ok": True, "state": sitesync.state()}
+    history.start(user)
+    return {"ok": True, "state": history.state()}
 
 
 @router.post("/products/{product_id}/merge")
@@ -694,7 +720,7 @@ def woo_catalog(user=Admin):
                FROM products WHERE active = 1 AND woo_id IS NOT NULL
                ORDER BY CASE woo_state WHEN 'error' THEN 0 WHEN 'gone' THEN 1 WHEN 'differ' THEN 2 WHEN 'nocount' THEN 3
                         WHEN 'whole' THEN 4 WHEN 'pending' THEN 5 ELSE 6 END, name"""))
-        sugg = woo.suggestions(con, catalog) if catalog.get("items") else []
+        sugg = matching.suggestions(con, catalog) if catalog.get("items") else []
     used = {(p["woo_id"], p["woo_variation_id"]) for p in linked}
     whole_linked = {w for w, v in used if v is None}          # product linked as a whole: its colors are covered
     color_linked = {w for w, v in used if v is not None}      # some colors linked: the whole product is not offered
@@ -715,7 +741,7 @@ async def woo_link(request: Request, user=Admin):
     with db.tx() as con:
         for link in links:
             try:
-                woo.link_product(con, int(link["product_id"]), int(link["woo_id"]),
+                matching.link_product(con, int(link["product_id"]), int(link["woo_id"]),
                                  int(link["variation_id"]) if link.get("variation_id") else None, catalog)
                 done += 1
             except ledger.LedgerError as exc:
@@ -724,7 +750,7 @@ async def woo_link(request: Request, user=Admin):
                 skipped.append(str(exc))
         notify.activity(con, "woo_link", f"{ledger.fa(done)} محصول به سایت وصل شد", f"توسط {user['name']}",
                         user_id=user["id"])
-    stocksync.touch([link.get("woo_id") for link in links])
+    stock.touch([link.get("woo_id") for link in links])
     return {"ok": True, "count": done, "skipped": skipped}
 
 
@@ -743,9 +769,9 @@ async def woo_pull(request: Request, user=Admin):
     body = await request.json()
     since = body.get("since")
     if since:
-        result = await woo.pull_orders(f"{since}T00:00:00+00:00")
+        result = await orders.pull_orders(f"{since}T00:00:00+00:00")
     else:
-        result = await woo.pull_orders()
+        result = await orders.pull_orders()
     return result
 
 
@@ -754,18 +780,18 @@ async def woo_webhook(request: Request):
     body = await request.body()
     if not request.headers.get("x-wc-webhook-topic"):
         return {"ok": True}          # WooCommerce "ping" when the webhook is saved
-    if not woo.verify_webhook(body, request.headers.get("x-wc-webhook-signature")):
-        woo.wlog("webhook", False, "امضای وب‌هوک نامعتبر بود (Secret را چک کنید)")
+    if not client.verify_webhook(body, request.headers.get("x-wc-webhook-signature")):
+        client.wlog("webhook", False, "امضای وب‌هوک نامعتبر بود (Secret را چک کنید)")
         raise HTTPException(401, "bad signature")
     topic = request.headers.get("x-wc-webhook-topic", "")
     import json
     data = json.loads(body or b"{}")
     if topic.startswith("order."):
-        result = await asyncio.to_thread(woo.process_order, data)
-        woo.wlog("webhook", True, f"{topic} #{data.get('number') or data.get('id')} ({data.get('status')}): {result}")
+        result = await asyncio.to_thread(orders.process_order, data)
+        client.wlog("webhook", True, f"{topic} #{data.get('number') or data.get('id')} ({data.get('status')}): {result}")
     elif topic.startswith("product."):
         # stock, price or a new color changed on the site: read that product again within seconds
-        stocksync.touch([data.get("parent_id") or data.get("id")])
+        stock.touch([data.get("parent_id") or data.get("id")])
     return {"ok": True}
 
 

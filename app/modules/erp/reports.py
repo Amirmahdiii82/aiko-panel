@@ -211,8 +211,8 @@ def dashboard(con, user: dict) -> dict:
     recent = db.rows(con.execute(
         """SELECT a.*, u.name AS user_name FROM core.activity a LEFT JOIN users u ON u.id = a.user_id
            WHERE a.module = 'erp' ORDER BY a.id DESC LIMIT 15"""))
-    from . import woo as woo_sync
-    woo = woo_sync.settings()
+    from .site import client
+    woo = client.settings()
     return {
         "today": {"orders": today_row[0], "revenue": int(today_row[1])},
         "month": month, "month_label": mlabel, "prev_month": prev,
@@ -222,7 +222,7 @@ def dashboard(con, user: dict) -> dict:
         "inventory": inventory_stats(con),
         "money": ledger.summary_money(con),
         "partners": ledger.partner_positions(con),
-        "site": {"configured": woo_sync.configured(woo), "started": bool(woo.get("stock_start")),
+        "site": {"configured": client.configured(woo), "started": bool(woo.get("stock_start")),
                  "errors": sync_errors, "pending": pending, "unlinked": unlinked, "nocount": nocount,
                  "last_order_sync": woo.get("last_order_sync")},
         "recent": recent,

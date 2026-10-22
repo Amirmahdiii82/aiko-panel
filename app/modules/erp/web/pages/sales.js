@@ -2,7 +2,7 @@
 import { $, api, compact, confirmBox, debounce, delegate, fa, html, icon, jdate, num, on, sheet, storage, timeOf, toast, toman } from "/static/js/kit.js";
 import { bindDates, dateField, emptyState, formData, selectOptions, thumb } from "/static/js/kit.js";
 import { periodChips, periodRange } from "/static/js/kit.js";
-import { accountOptions, CHANNEL_ICON, erp, isAdmin } from "../erp.js";
+import { accountOptions, bindReceiptBox, CHANNEL_ICON, erp, isAdmin, receiptBox } from "../erp.js";
 
 export async function render(view, params, { setTitle, query }) {
   const admin = isAdmin();
@@ -99,7 +99,7 @@ export function openSale(id, changed) {
   const s = sheet({ title: "فروش", side: true, body: '<div class="skeleton" style="height:300px"></div>',
     onClose: () => { if (location.hash.startsWith(`#/erp/sales/${id}`)) history.replaceState(null, "", "#/erp/sales"); } });
   const load = async () => {
-    const { sale, items } = await api(`/api/erp/sales/${id}`);
+    const { sale, items, drive } = await api(`/api/erp/sales/${id}`);
     s.sale = sale;
     s.root.querySelector(".sheet-head h2").textContent = `فروش ${sale.code}`;
     const profit = sale.total - (sale.cogs || 0);
@@ -126,6 +126,7 @@ export function openSale(id, changed) {
         ${admin ? html`<div class="t-row small"><span class="muted">سود ناخالص</span><span class="num ${profit < 0 ? "bad-ink" : "ok-ink"}">${num(profit)}</span></div>` : ""}
         ${sale.commission ? html`<div class="t-row small"><span class="muted">پورسانت فروشنده</span><span class="num">${num(sale.commission)}</span></div>` : ""}
       </div>
+      ${admin ? receiptBox(sale.receipt, drive) : ""}
       ${admin && sale.status === "done" ? html`<form class="form-grid" id="meta">
           <div class="field"><label>مشتری</label><input class="input" name="customer_name" value="${sale.customer_name || ""}"></div>
           <div class="field"><label>تلفن</label><input class="input ltr" name="customer_phone" value="${sale.customer_phone || ""}"></div>
@@ -150,6 +151,7 @@ export function openSale(id, changed) {
     bindDates(s.root);
   };
   load();
+  if (admin) bindReceiptBox(s.root, "sales", id, () => { load(); changed && changed(); });
   delegate(s.root, "click", "[data-a]", async (e, el) => {
     if (el.dataset.a === "save") {
       const f = formData(s.root.querySelector("#meta"));

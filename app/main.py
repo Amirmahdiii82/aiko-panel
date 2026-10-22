@@ -13,7 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .core import auth, backup, bot, config, db, events, jobs, modules
+from .core import auth, backup, bot, config, db, drive, events, jobs, modules
 from .core.router import router as core_router
 
 logging.basicConfig(level=config.LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -71,6 +71,7 @@ def create_app() -> FastAPI:
             jobs.daily("core.backup", config.BACKUP_TIME, backup.daily_job)
         jobs.every("core.backup.telegram", 300, backup.telegram_tick)     # sends when due (hourly by default)
         jobs.supervise("core.bot", bot.loop)                               # the owners' bot answers commands
+        jobs.supervise("core.drive", drive.worker)                         # receipts → the owners' Google Drive
         jobs.start()
         log.info("ready: modules=%s data=%s", ",".join(modules.loaded), config.DATA_DIR)
         yield

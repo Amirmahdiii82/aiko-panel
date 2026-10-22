@@ -6,7 +6,8 @@ from pathlib import Path
 from ...core import db as core_db
 from ...core import events, jobs
 from ...core.modules import Module
-from . import botflows, botreports, db, ledger, notify, reports, sitesync, stocksync, woo
+from . import botflows, botreports, db, ledger, notify, receipts, reports
+from .site import client, history, stock
 from .router import ledger_profile, router
 
 DEFAULT_COLORS = ["#5B4B87", "#D27C6D", "#4D6F54", "#8D6324"]
@@ -48,12 +49,13 @@ def on_user_saved(user: dict, profile: dict, created: bool) -> None:
         ledger_profile(con, user["id"], user["name"], role, profile.get("erp") or {})
 
 
-def _nightly_site_sync() -> None:
-    """New site products and anything a webhook missed are picked up every night."""
-    if woo.configured() and not sitesync.running():
+def _nightly_site_check() -> None:
+    """Every night the last two weeks of website orders are read again: anything both the webhook and the polling
+    missed is caught (importing the whole history is a one-time action on the site page)."""
+    if client.configured() and not history.running():
         try:
-            sitesync.start(None)
-        except woo.WooError:
+            history.start(None, recent_days=14)
+        except client.WooError:
             pass
 
 
@@ -68,15 +70,16 @@ def tag_sources() -> None:
 async def startup() -> None:
     db.seed_settings()
     tag_sources()
-    woo.adopt_legacy_keys()
-    woo.ensure_webhook_secret()
+    client.adopt_legacy_keys()
+    client.ensure_webhook_secret()
     bootstrap()
     events.on("user.saved", on_user_saved)
-    events.on("integrations.saved", lambda keys: stocksync.wake())
-    if sitesync.state().get("running"):                 # the app restarted mid-sync
-        sitesync._set_state(running=False, step="", error="همگام‌سازی با ری‌استارت برنامه نیمه‌کاره ماند؛ دوباره بزنید")
-    jobs.supervise("erp.woo", stocksync.worker)
-    jobs.daily("erp.site_sync", "04:30", _nightly_site_sync)
+    events.on("integrations.saved", lambda keys: stock.wake())
+    events.on("drive.backfill", receipts.backfill)
+    if history.state().get("running"):                 # the app restarted mid-sync
+        history._set_state(running=False, step="", error="همگام‌سازی با ری‌استارت برنامه نیمه‌کاره ماند؛ دوباره بزنید")
+    jobs.supervise("erp.woo", stock.worker)
+    jobs.daily("erp.site_sync", "04:30", _nightly_site_check)
 
 
 def summary(user: dict) -> dict:
@@ -97,10 +100,10 @@ def summary(user: dict) -> dict:
         site = con.execute("""SELECT SUM(CASE WHEN woo_state IN ('error', 'gone', 'whole') THEN 1 ELSE 0 END),
                                      SUM(CASE WHEN woo_state = 'nocount' THEN 1 ELSE 0 END)
                               FROM products WHERE active = 1 AND woo_id IS NOT NULL""").fetchone()
-    s = woo.settings()
+    s = client.settings()
     return {"today": {"orders": t[0], "revenue": int(t[1])}, "month": month, "month_label": label,
             "out_count": inv[0] or 0, "low_count": inv[1] or 0, "stock_value": int(inv[2] or 0),
-            "site": {"configured": woo.configured(s), "started": stocksync.started(s),
+            "site": {"configured": client.configured(s), "started": stock.started(s),
                      "problems": site[0] or 0, "nocount": site[1] or 0}}
 
 
@@ -129,5 +132,5 @@ module = Module(
     event_filter=notify.visible_to,
     cli={"import-excel": _cli_import_excel},
     bot={**botflows.FLOWS, **botreports.COMMANDS},
-    exception_handlers={ledger.LedgerError: 400, woo.WooError: 502},
+    exception_handlers={ledger.LedgerError: 400, client.WooError: 502},
 )

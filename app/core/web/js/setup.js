@@ -15,12 +15,17 @@ export const ITEMS = [
     done: (s) => `${s.bot.bot === "telegram" ? "تلگرام" : "بله"} — پیام‌ها به ${fa(s.bot.chat_ids.split(",").filter(Boolean).length)} چت می‌رود` },
   { key: "backup", ico: "database", title: "پشتیبان در کانال تلگرام", need: "هر ساعت یک نسخه از همه داده‌ها بیرون از سرور",
     done: (s) => (s.backup.last_at ? `آخرین ارسال ${when(s.backup.last_at)}` : `روشن — هر ${fa(s.backup.hours)} ساعت`) },
+  { key: "drive", ico: "folder", title: "رسیدها در گوگل درایو", optional: true, need: "رسید خریدها، فروش‌ها، هزینه‌ها و فاکتور سفارش‌های سایت، مرتب در درایو",
+    done: (s) => `${s.drive.email} — ${fa(s.drive.usage.files)} فایل` },
   { key: "openrouter", ico: "key-round", title: "OpenRouter (استودیو محتوا)", optional: true, need: "فقط برای ساخت تصویر و ویدیو",
     done: (s) => `کلید ذخیره شده ${s.openrouter.key_hint}` },
 ];
 
 function rowState(it, s) {
   if (it.key === "backup" && s.backup.enabled && s.backup.last_ok === false) return { cls: "bad", label: "خطا", text: s.backup.last_error };
+  if (it.key === "drive" && s.drive.ok && (s.drive.usage.errors || s.drive.usage.held)) {
+    return { cls: "warn", label: "نیاز به توجه", text: `${fa(s.drive.usage.errors + s.drive.usage.held)} رسید به درایو نرفته` };
+  }
   if (s[it.key].ok) return { cls: "ok", label: "آماده", text: it.done(s) };
   return { cls: it.optional ? "" : "warn", label: it.optional ? "اختیاری" : "تنظیم نشده", text: it.need };
 }
@@ -66,7 +71,79 @@ export async function renderForm(key, el, opts = {}) {
   await FORMS[key](el, opts);
 }
 
+const mb = (bytes) => (bytes >= 1073741824 ? `${fa((bytes / 1073741824).toFixed(1))} گیگابایت` : `${fa(Math.round(bytes / 1048576))} مگابایت`);
+
 const FORMS = {
+  async drive(el, { onSaved }) {
+    const d = await api("/api/drive");
+    const redraw = () => FORMS.drive(el, { onSaved });
+    if (!d.connected) {
+      el.innerHTML = String(html`<form class="stack s12" autocomplete="off">
+        <p class="small muted">رسید هر خرید، فروش و هزینه، و فاکتور هر سفارش سایت در یک پوشه مرتب در گوگل درایو خودتان (سال ← ماه ← نوع) ذخیره می‌شود.
+          پنل فقط به فایل‌هایی که خودش می‌سازد دسترسی دارد، نه بقیه درایو.</p>
+        ${!d.proxy ? html`<div class="callout warn">${icon("triangle-alert")}<div>اول «پروکسی خروجی» را در «سایت و اتصال‌ها» تنظیم کنید؛ گوگل از ایران در دسترس نیست.</div></div>` : ""}
+        ${d.last_error ? html`<div class="callout bad">${icon("circle-alert")}<div>${d.last_error}</div></div>` : ""}
+        <div class="steps">
+          <div class="step"><div class="s-body small">در <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">Google Cloud Console</a> یک پروژه بسازید و <b>Google Drive API</b> را Enable کنید.</div></div>
+          <div class="step"><div class="s-body small">در <b>OAuth consent screen</b> نوع External را بزنید و در آخر <b>Publish app</b> کنید (حالت In production)؛ وگرنه اتصال بعد از ۷ روز قطع می‌شود.</div></div>
+          <div class="step"><div class="s-body small"><b>Credentials ← Create credentials ← OAuth client ID</b>، نوع Web application، و در Authorized redirect URIs این آدرس:
+            <div class="row nowrap mt8"><code class="ltr ellipsis inset" style="flex:1;padding:6px 10px">${d.redirect_uri}</code>
+            <button type="button" class="btn xs ghost" data-copy="${d.redirect_uri}" aria-label="کپی">${icon("copy", "sm")}</button></div></div></div>
+          <div class="step"><div class="s-body small">Client ID و Client secret را همین‌جا وارد و «اتصال به گوگل درایو» را بزنید.</div></div>
+        </div>
+        <div class="field"><label>Client ID</label><input class="input ltr" name="client_id" value="${d.client_id}" placeholder="…apps.googleusercontent.com"></div>
+        <div class="field"><label>Client secret</label><input class="input ltr" name="client_secret" type="password" placeholder="${d.secret_set ? "ذخیره شده (برای تغییر، جدید را بنویسید)" : "GOCSPX-…"}"></div>
+        <button class="btn primary" type="submit">${icon("folder")} اتصال به گوگل درایو</button>
+      </form>`);
+      $("[data-copy]", el).onclick = (e) => navigator.clipboard?.writeText(e.currentTarget.dataset.copy).then(() => toast("کپی شد"));
+      $("form", el).onsubmit = async (e) => {
+        e.preventDefault();
+        const f = e.target;
+        if (!f.client_id.value.trim() || (!d.secret_set && !f.client_secret.value.trim())) return toast("Client ID و Client secret را وارد کنید", "error");
+        await api("/api/drive", { method: "PUT", body: { client_id: f.client_id.value, client_secret: f.client_secret.value } });
+        location.href = "/api/drive/connect";
+      };
+      return;
+    }
+    const u = d.usage, cap = d.cap_mb * 1048576, pct = Math.min(100, Math.round((u.bytes / cap) * 100));
+    el.innerHTML = String(html`<div class="stack s12">
+      <div class="row between"><div class="row nowrap"><span class="badge ok">${icon("check")}وصل</span><span class="small ltr">${d.email}</span></div>
+        ${d.root_link ? html`<a class="btn xs soft" href="${d.root_link}" target="_blank" rel="noopener">${icon("external-link", "sm")} باز کردن پوشه</a>` : ""}</div>
+      <div class="inset stack s8">
+        <div class="row between small"><span>${fa(u.files)} فایل، ${mb(u.bytes)} از سقف ${mb(cap)}</span><span class="muted">${fa(pct)}٪</span></div>
+        <div class="progress"><i style="width:${pct}%"></i></div>
+        <div class="tiny muted">${[u.pending && `${fa(u.pending)} در صف ارسال`, u.held && `${fa(u.held)} منتظر فضا (سقف پر است)`, u.errors && `${fa(u.errors)} ناموفق`].filter(Boolean).join("، ") || "همه رسیدها در درایو هستند."}
+          ${d.quota?.limit ? ` فضای کل درایو: ${mb(d.quota.usage || 0)} از ${mb(d.quota.limit)}.` : ""}</div>
+      </div>
+      ${d.last_error ? html`<div class="callout bad">${icon("circle-alert")}<div>${d.last_error}</div></div>` : ""}
+      <form class="row" data-cap><label class="small row nowrap">سقف فضای رسیدها <input class="input sm" name="cap" value="${fa(d.cap_mb)}" style="width:90px" inputmode="numeric"> مگابایت</label>
+        <button class="btn xs soft" type="submit">ذخیره</button></form>
+      <p class="tiny muted">عکس رسیدها موقع بارگذاری کوچک می‌شوند (معمولاً ۱۵۰ تا ۴۰۰ کیلوبایت) و فاکتور سفارش سایت حدود ۲۰ کیلوبایت است؛ اگر سقف پر شود رسیدهای تازه روی سرور می‌مانند و خبر می‌دهیم.</p>
+      <div class="row">
+        <button class="btn sm soft" data-act="backfill">${icon("upload", "sm")} ارسال رسیدهای قبلی</button>
+        ${u.errors || u.held ? html`<button class="btn sm soft" data-act="retry">${icon("refresh-cw", "sm")} تلاش دوباره</button>` : ""}
+        <button class="btn sm ghost" data-act="test">${icon("check", "sm")} آزمایش اتصال</button>
+        <span class="spacer"></span>
+        <button class="btn sm ghost" data-act="disconnect">${icon("unlink", "sm")} قطع اتصال</button>
+      </div>
+    </div>`);
+    $("[data-cap]", el).onsubmit = async (e) => {
+      e.preventDefault();
+      await api("/api/drive", { method: "PUT", body: { cap_mb: Number(digits(e.target.cap.value)) || 2048 } });
+      toast("ذخیره شد"); onSaved?.(); redraw();
+    };
+    el.querySelectorAll("[data-act]").forEach((b) => { b.onclick = async () => {
+      b.disabled = true;
+      try {
+        if (b.dataset.act === "backfill") { const r = await api("/api/drive/backfill", { method: "POST" }); toast(`${fa(r.queued)} فایل در صف ارسال به درایو`); }
+        if (b.dataset.act === "retry") { await api("/api/drive/retry", { method: "POST" }); toast("دوباره فرستاده می‌شوند"); }
+        if (b.dataset.act === "test") { await api("/api/drive/test", { method: "POST" }); toast("اتصال گوگل درایو درست است ✓"); }
+        if (b.dataset.act === "disconnect") { await api("/api/drive/disconnect", { method: "POST" }); toast("قطع شد"); }
+      } finally { onSaved?.(); redraw(); }
+    }; });
+  },
+
+
   async woo(el, { onSaved }) {
     const w = (await api("/api/integrations")).woo;
     el.innerHTML = String(html`<form class="stack s12" autocomplete="off">

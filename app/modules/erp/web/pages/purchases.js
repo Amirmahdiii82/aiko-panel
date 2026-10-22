@@ -2,7 +2,7 @@
 import { $, api, confirmBox, debounce, delegate, fa, html, icon, jdate, num, on, sheet, toast, toman } from "/static/js/kit.js";
 import { emptyState, receiptLink, thumb } from "/static/js/kit.js";
 import { periodChips, periodRange } from "/static/js/kit.js";
-import { erp } from "../erp.js";
+import { bindReceiptBox, erp, receiptBox } from "../erp.js";
 
 const norm = (s) => String(s || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/‌/g, " ").toLowerCase();
 
@@ -63,11 +63,12 @@ function openPurchase(id, changed) {
   const s = sheet({ title: "خرید", side: true, body: '<div class="skeleton" style="height:240px"></div>',
     onClose: () => { if (location.hash.startsWith("#/erp/purchases/")) history.replaceState(null, "", "#/erp/purchases"); } });
   const load = async () => {
-    const { purchase: p, items } = await api(`/api/erp/purchases/${id}`);
+    const { purchase: p, items, drive } = await api(`/api/erp/purchases/${id}`);
     s.root.querySelector(".sheet-head h2").textContent = `خرید ${p.code}`;
     s.root.querySelector(".sheet-body").innerHTML = String(html`<div class="stack">
       <div class="row"><span class="small muted">${jdate(p.date, { weekday: true })}</span>${p.status === "void" ? html`<span class="badge bad">باطل شده</span>` : ""}
-        <span class="spacer"></span>${receiptLink(p.receipt)}</div>
+        </div>
+      ${receiptBox(p.receipt, drive)}
       <div class="list">${items.map((it) => html`<div class="list-item">${thumb(it, "sm")}
         <div class="grow"><a class="title small" href="#/erp/products/${it.product_id}">${it.name}</a>
           <div class="sub">${fa(it.qty)} × ${num(it.unit_cost)}${Math.round(it.landed_cost) !== Math.round(it.unit_cost) ? `، تمام‌شده با حمل ${num(it.landed_cost)}` : ""}</div></div>
@@ -98,5 +99,6 @@ function openPurchase(id, changed) {
     }
   };
   load();
+  bindReceiptBox(s.root, "purchases", id, () => { load(); changed && changed(); });
   return s;
 }

@@ -5,7 +5,8 @@ import re
 import pytest
 
 from app.core import integrations
-from app.modules.erp import db, ledger, stocksync, woo
+from app.modules.erp import db, ledger
+from app.modules.erp.site import client, matching, stock
 
 from .conftest import H
 
@@ -54,7 +55,7 @@ class FakeSite:
             pool = self.variations[int(m[1])] if m else self.products
             out = []
             for u in json["update"]:
-                pool[u["id"]].update(manage_stock=u["manage_stock"], stock_quantity=u["stock_quantity"])
+                pool[u["id"]].update({k: v for k, v in u.items() if k != "id"})
                 out.append(dict(pool[u["id"]]))
             return {"update": out}, {}
         if method == "GET" and path == "orders":
@@ -75,10 +76,10 @@ def site(owner, monkeypatch):
 
     async def idle(s):                      # the app's own background worker stays out of the way
         return None
-    monkeypatch.setattr(stocksync, "_tick", idle)
-    monkeypatch.setattr(woo.Woo, "request", request)
+    monkeypatch.setattr(stock, "_tick", idle)
+    monkeypatch.setattr(client.Woo, "request", request)
     integrations.save_woo({"url": "https://shop", "key": "ck", "secret": "cs"})
-    woo._save_woo({"last_order_sync": "2026-01-01T00:00:00+00:00"})
+    client._save_woo({"last_order_sync": "2026-01-01T00:00:00+00:00"})
     return fake
 
 
@@ -101,29 +102,29 @@ USER = {"id": None, "name": "امیر"}
 
 
 def start(side):
-    return run(stocksync.start(side, USER))
+    return run(stock.start(side, USER))
 
 
 def test_a_new_site_product_arrives_with_the_sites_stock(site):
     site.add(10, "رژ لب", 5)
-    run(stocksync.refresh(full=True))
+    run(stock.refresh(full=True))
     p = product(10)
     assert p["stock"] == 5 and p["woo_state"] == "ok" and p["woo_stock"] == 5
 
 
 def test_nothing_is_sent_before_the_one_time_start(site):
     site.add(10, "رژ لب", 5)
-    run(stocksync.refresh(full=True))
+    run(stock.refresh(full=True))
     with db.tx() as con:
         ledger.add_move(con, product(10)["id"], -2, "adjust", quiet=True)
-    run(stocksync.refresh(full=True))
-    run(stocksync.push_pending())
+    run(stock.refresh(full=True))
+    run(stock.push_pending())
     assert site.writes == [] and product(10)["woo_state"] == "differ" and product(10)["stock"] == 3
 
 
 def _differing(site):
     site.add(10, "رژ لب", 5)
-    run(stocksync.refresh(full=True))
+    run(stock.refresh(full=True))
     with db.tx() as con:
         ledger.add_move(con, product(10)["id"], 3, "adjust", quiet=True)      # here 8, on the site 5
 
@@ -139,7 +140,7 @@ def test_starting_with_the_panels_numbers(site, owner):
     r = owner.post("/api/erp/woo/start", json={"side": "panel"}, headers=H)
     assert r.status_code == 200, r.text
     assert site.products[10]["stock_quantity"] == 8 and product(10)["woo_state"] == "ok"
-    assert {w["topic"] for w in site.webhooks} == set(woo.WEBHOOK_TOPICS)     # instant updates set up on the way
+    assert {w["topic"] for w in site.webhooks} == set(client.WEBHOOK_TOPICS)     # instant updates set up on the way
 
 
 def test_every_change_here_sets_the_site_to_the_panels_number(site):
@@ -149,11 +150,11 @@ def test_every_change_here_sets_the_site_to_the_panels_number(site):
     with db.tx() as con:
         ledger.create_sale(con, {"channel": "in_person", "items": [{"product_id": pid, "qty": 2, "unit_price": 1}]},
                            None, quiet=True)
-    run(stocksync.push_pending())
+    run(stock.push_pending())
     assert site.products[10]["stock_quantity"] == 3
     with db.tx() as con:
         ledger.create_purchase(con, {"items": [{"product_id": pid, "qty": 10, "unit_cost": 1}]}, None, quiet=True)
-    run(stocksync.push_pending())
+    run(stock.push_pending())
     assert site.products[10]["stock_quantity"] == 13 and product(10)["woo_state"] == "ok"
 
 
@@ -161,8 +162,8 @@ def test_a_website_order_is_counted_once(site):
     site.add(10, "رژ لب", 5)
     start("site")
     site.order(501, 10, 1)                                 # the site took it out of stock itself
-    run(stocksync.refresh(full=True))
-    run(stocksync.push_pending())
+    run(stock.refresh(full=True))
+    run(stock.push_pending())
     p = product(10)
     assert p["stock"] == 4 and site.products[10]["stock_quantity"] == 4 and p["woo_state"] == "ok"
 
@@ -171,9 +172,9 @@ def test_stock_typed_by_hand_on_the_site_goes_back_to_the_panels_number(site):
     site.add(10, "رژ لب", 5)
     start("site")
     site.products[10]["stock_quantity"] = 9                # edited in the WordPress admin
-    report = run(stocksync.refresh(full=True))
+    report = run(stock.refresh(full=True))
     assert len(report["corrected"]) == 1
-    run(stocksync.push_pending())
+    run(stock.push_pending())
     assert site.products[10]["stock_quantity"] == 5 and product(10)["stock"] == 5
     with db.read() as con:
         assert con.execute("SELECT COUNT(*) FROM core.activity WHERE kind = 'site_stock' AND title LIKE '%دستی%'").fetchone()[0] == 1
@@ -186,12 +187,12 @@ def test_an_item_the_site_does_not_count_is_left_alone_until_counted_here(site, 
     assert p["woo_state"] == "nocount" and site.writes == []
     with db.tx() as con:
         ledger.add_move(con, p["id"], 1, "adjust", quiet=True)          # a change alone does not switch counting on
-    run(stocksync.push_pending())
-    run(stocksync.refresh(parents={20}))
+    run(stock.push_pending())
+    run(stock.refresh(parents={20}))
     assert site.writes == [] and product(20)["woo_state"] == "nocount"
     r = owner.post("/api/erp/woo/count", json={"product_id": p["id"], "qty": 7}, headers=H)
     assert r.status_code == 200, r.text
-    run(stocksync.push_pending())
+    run(stock.push_pending())
     assert site.products[20]["manage_stock"] is True and site.products[20]["stock_quantity"] == 7
     assert product(20)["stock"] == 7 and product(20)["woo_state"] == "ok"
 
@@ -201,18 +202,18 @@ def test_a_product_deleted_on_the_site_is_marked_and_never_pushed(site):
     site.add(11, "ریمل", 2)
     start("site")
     del site.products[10]
-    run(stocksync.refresh(full=True))
+    run(stock.refresh(full=True))
     assert product(10)["woo_state"] == "gone"
-    run(stocksync.push_pending())
+    run(stock.push_pending())
     assert site.writes == []
 
 
 def test_an_empty_answer_from_the_site_never_marks_everything_deleted(site):
     site.add(10, "رژ لب", 5)
-    run(stocksync.refresh(full=True))
+    run(stock.refresh(full=True))
     site.products.clear()
-    with pytest.raises(woo.WooError):
-        run(stocksync.refresh(full=True))
+    with pytest.raises(client.WooError):
+        run(stock.refresh(full=True))
     assert product(10)["woo_state"] == "ok"
 
 
@@ -222,35 +223,35 @@ def test_a_product_linked_as_a_whole_to_one_with_colors_is_read_only(site):
     site.add_color(30, 32, "صورتی", 2)
     with db.tx() as con:
         pid = ledger.create_product(con, {"name": "رژ مایع قدیمی", "stock": 9}, None, quiet=True)
-        woo.link_product(con, pid, 30, None, None)
+        matching.link_product(con, pid, 30, None, None)
     start("panel")
     p = product(30)
     assert p["id"] == pid and p["woo_state"] == "whole" and p["woo_stock"] == 6 and p["stock"] == 9
     with db.tx() as con:
         ledger.add_move(con, pid, -1, "adjust", quiet=True)
-    run(stocksync.push_pending())
-    run(stocksync.refresh(parents={30}))
+    run(stock.push_pending())
+    run(stock.refresh(parents={30}))
     assert site.writes == [] and product(30)["woo_state"] == "whole"
 
 
 def test_a_new_link_is_read_before_anything_is_sent(site):
     site.add(20, "براش", manage=False)
     start("site")
-    stocksync._touched.clear()
+    stock._touched.clear()
     with db.tx() as con:
         pid = ledger.create_product(con, {"name": "براش قدیمی", "stock": 0}, None, quiet=True)
         con.execute("UPDATE products SET woo_id = NULL WHERE woo_id = 20")
-        woo.link_product(con, pid, 20, None, None)
+        matching.link_product(con, pid, 20, None, None)
         ledger.add_move(con, pid, 1, "adjust", quiet=True)
-    run(stocksync.push_pending())
-    assert site.writes == [] and 20 in stocksync._touched     # read first: the site does not count this one
+    run(stock.push_pending())
+    assert site.writes == [] and 20 in stock._touched     # read first: the site does not count this one
 
 
 def test_a_price_change_on_the_site_updates_the_price_here(site):
     site.add(10, "رژ لب", 5, price=100_000)
-    run(stocksync.refresh(full=True))
+    run(stock.refresh(full=True))
     site.products[10]["price"] = "120000"
-    run(stocksync.refresh(full=True))
+    run(stock.refresh(full=True))
     assert product(10)["price"] == 120_000
 
 
@@ -266,60 +267,37 @@ def test_a_product_webhook_queues_that_product_for_a_reread(site, owner):
     import hashlib
     import hmac
     import json
-    stocksync._touched.clear()
+    stock._touched.clear()
     body = json.dumps({"id": 31, "parent_id": 30}).encode()
-    secret = woo.settings()["webhook_secret"].encode()
+    secret = client.settings()["webhook_secret"].encode()
     sig = base64.b64encode(hmac.new(secret, body, hashlib.sha256).digest()).decode()
     r = owner.post("/api/erp/woo/webhook", content=body,
                    headers={"x-wc-webhook-topic": "product.updated", "x-wc-webhook-signature": sig})
     assert r.status_code == 200, r.text
-    assert 30 in stocksync._touched
+    assert 30 in stock._touched
     r = owner.post("/api/erp/woo/webhook", content=body,
                    headers={"x-wc-webhook-topic": "product.updated", "x-wc-webhook-signature": "forged"})
     assert r.status_code == 401
 
 
-def test_one_count_sheet_sets_both_the_panel_and_the_site(site, owner):
-    import io
-    import openpyxl
+
+def test_a_code_set_on_the_site_becomes_the_code_here(site):
     site.add(10, "رژ لب", 5)
-    site.add(20, "براش", manage=False)
-    site.add(30, "ریمل", 2)
-    run(stocksync.refresh(full=True))
-    with db.tx() as con:
-        only_here = ledger.create_product(con, {"name": "محصول فقط انبار", "stock": 4}, None, quiet=True)
-    r = owner.get("/api/erp/stock-count.xlsx")
-    assert r.status_code == 200
-    wb = openpyxl.load_workbook(io.BytesIO(r.content))
-    ws = wb["شمارش موجودی"]
-    rows = {row[0].value: row for row in ws.iter_rows(min_row=2)}
-    assert set(rows) == {product(10)["id"], product(20)["id"], product(30)["id"], only_here}
-    rows[product(10)["id"]][8].value = 7                 # counted on the shelf
-    rows[product(20)["id"]][8].value = "۳"               # Persian digits are fine
-    rows[only_here][8].value = "چند تا"                   # a mistake is reported, the rest still goes in
-    # 30 left empty: stays as it is
-    buf = io.BytesIO()
-    wb.save(buf)
-    files = {"file": ("count.xlsx", buf.getvalue(), "application/octet-stream")}
-    preview = owner.post("/api/erp/stock-count", files=files, headers=H).json()
-    assert preview["counted"] == 2 and preview["changed"] == 2 and len(preview["problems"]) == 1
-    assert product(10)["stock"] == 5                     # nothing saved by the preview
-    r = owner.post("/api/erp/stock-count?confirm=true", files=files, headers=H)
+    run(stock.refresh(full=True))
+    site.products[10]["sku"] = "LIP-10"
+    run(stock.refresh(full=True))
+    assert product(10)["sku"] == "LIP-10"
+
+
+def test_the_panels_codes_are_written_where_the_site_has_none(site, owner):
+    site.add(10, "رژ لب", 5)
+    site.add(30, "رژ مایع", manage=False, type_="variable")
+    site.add_color(30, 31, "قرمز", 4)
+    site.products[10]["sku"] = ""
+    run(stock.refresh(full=True))
+    assert len(stock.missing_codes()) == 2
+    r = owner.post("/api/erp/woo/codes", headers=H)
     assert r.status_code == 200, r.text
-    assert product(10)["stock"] == 7 and product(20)["stock"] == 3 and product(30)["stock"] == 2
-    assert stocksync.started()
-    run(stocksync.push_pending())
-    assert site.products[10]["stock_quantity"] == 7
-    assert site.products[20]["manage_stock"] is True and site.products[20]["stock_quantity"] == 3   # now counted there too
-    assert site.products[30]["stock_quantity"] == 2 and product(10)["woo_state"] == "ok"
-
-
-def test_a_sheet_that_is_not_the_panels_is_refused(owner):
-    import io
-    import openpyxl
-    wb = openpyxl.Workbook()
-    wb.active.append(["نام", "تعداد"])
-    buf = io.BytesIO()
-    wb.save(buf)
-    r = owner.post("/api/erp/stock-count", files={"file": ("x.xlsx", buf.getvalue(), "application/octet-stream")}, headers=H)
-    assert r.status_code == 400 and "شناسه" in r.json()["detail"]
+    assert r.json() == {"written": 2, "errors": []}
+    assert site.products[10]["sku"] == product(10)["sku"] and site.variations[30][31]["sku"] == product(30, 31)["sku"]
+    assert stock.missing_codes() == [] and client.settings()["write_sku"] is True

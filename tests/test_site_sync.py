@@ -3,7 +3,8 @@ missing costs, shared connections and the Telegram backup."""
 import httpx
 
 from app.core import backup, integrations
-from app.modules.erp import db, ledger, sitesync, woo
+from app.modules.erp import db, ledger
+from app.modules.erp.site import client, history, orders
 
 from .conftest import H
 
@@ -69,7 +70,7 @@ def test_full_sync_merges_sheet_sales_with_exact_site_orders(owner):
                refunds=[{"id": 1, "total": "-100000"}]),
         _order(505, "2026-09-11", [(10, None, "لیپ گلاس کیکو", 1, 540_000)], status="cancelled"),
     ]
-    report = sitesync.apply(_catalog(), orders)
+    report = history.apply(_catalog(), orders)
     assert report["sales_replaced"] == 2 and report["sales_created"] == 2
 
     with db.read() as con:
@@ -99,14 +100,14 @@ def test_full_sync_merges_sheet_sales_with_exact_site_orders(owner):
         assert con.execute("SELECT cogs FROM sales WHERE code = 'WEB-501'").fetchone()[0] == 220_000
 
     # running it again changes nothing
-    again = sitesync.apply(_catalog(), orders)
+    again = history.apply(_catalog(), orders)
     assert again["sales_created"] == again["sales_replaced"] == again["products_created"] == 0
     with db.read() as con:
         assert con.execute("SELECT COUNT(*) FROM sales WHERE status = 'done'").fetchone()[0] == 5
 
 
 def test_variable_product_without_panel_record_gets_one_product_per_color(owner):
-    sitesync.apply(_catalog(), [])
+    history.apply(_catalog(), [])
     with db.read() as con:
         rows = db.rows(con.execute("SELECT woo_id, woo_variation_id, stock FROM products WHERE woo_id = 20 ORDER BY woo_variation_id"))
     assert [(r["woo_variation_id"], r["stock"]) for r in rows] == [(21, 4), (22, 2)]
@@ -115,9 +116,9 @@ def test_variable_product_without_panel_record_gets_one_product_per_color(owner)
 def test_refund_on_the_site_updates_the_recorded_sale(owner):
     db.set_setting("woo_catalog", _catalog())
     order = _order(600, "2026-10-01", [(10, None, "لیپ گلاس کیکو", 1, 540_000)])
-    assert woo.process_order(order) == "created"
+    assert orders.process_order(order) == "created"
     order["refunds"] = [{"id": 9, "total": "-40000"}]
-    assert woo.process_order(order) == "updated"
+    assert orders.process_order(order) == "updated"
     with db.read() as con:
         sale = db.one(con.execute("SELECT total, refunded FROM sales WHERE woo_order_id = 600"))
     assert sale == {"total": 500_000, "refunded": 40_000}
@@ -146,7 +147,7 @@ def test_connections_are_shared_and_secrets_stay_on_the_server(owner):
     assert view["woo"]["url"] == "https://shop.ir" and view["woo"]["secret_set"] and "secret" not in view["woo"]
     assert view["openrouter"]["key_hint"] == "…abcd"
     # the ERP and the price checker read the same site; the studio reads the same key and proxy
-    assert woo.settings()["key"] == "ck_1" and woo.configured()
+    assert client.settings()["key"] == "ck_1" and client.configured()
     from app.modules.pricing import config as pricing_config
     from app.modules.media import openrouter
     assert pricing_config.own_site_url() == "https://shop.ir"
@@ -156,7 +157,7 @@ def test_connections_are_shared_and_secrets_stay_on_the_server(owner):
 
 def test_old_module_keys_move_to_the_shared_connection(owner):
     db.set_setting("woo", {**(db.get_setting("woo") or {}), "key": "ck_old", "secret": "cs_old"})
-    woo.adopt_legacy_keys()
+    client.adopt_legacy_keys()
     assert integrations.woo()["key"] == "ck_old" and "key" not in db.get_setting("woo")
 
 

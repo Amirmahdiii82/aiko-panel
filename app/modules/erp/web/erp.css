@@ -88,6 +88,13 @@ select.tl-input { appearance: none; cursor: pointer; }
 .ticket-more summary svg { transition: transform var(--dur-fast) var(--ease-out); }
 .ticket .totals { padding-top: 12px; border-top: 1px dashed var(--line-2); }
 
+/* ---------------------------------------------------------------- receipts (sale / purchase detail) */
+.receipt-box { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: var(--r-md); background: var(--clay-2); box-shadow: var(--inset-shadow); }
+.receipt-box .grow { flex: 1; min-width: 0; }
+.receipt-box a { color: var(--primary-ink); }
+.receipt-box label.btn { cursor: pointer; }
+.receipt-box.busy { opacity: .6; pointer-events: none; }
+
 /* ---------------------------------------------------------------- site sync page */
 .sync-orb {
   width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; flex: none; color: #fff;
@@ -99,10 +106,6 @@ select.tl-input { appearance: none; cursor: pointer; }
 /* icon + text side by side; the text wraps (no .nowrap here: that class also stops text from wrapping) */
 .sync-head { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
 .sync-head > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.count-sheet { margin-top: 16px; padding: 14px 16px; border-radius: var(--r-lg); background: var(--clay-2); box-shadow: var(--inset-shadow); display: flex; flex-direction: column; gap: 12px; }
-.count-sheet.first { background: var(--primary-soft); box-shadow: none; }
-.count-sheet .sync-head svg { color: var(--primary); margin-top: 2px; }
-.count-sheet label.btn { cursor: pointer; }
 .sync-rules { list-style: none; margin: 16px 0 0; padding: 14px 0 0; border-top: 1px dashed var(--line-2); display: flex; flex-direction: column; gap: 8px; }
 .sync-rules li { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.7; color: var(--ink-2); }
 .sync-rules li svg { margin-top: 4px; color: var(--primary); }
@@ -132,6 +135,29 @@ details.fold > summary::after {
 details.fold[open] > summary::after { transform: rotate(135deg); }
 .count-row .input { text-align: center; font-weight: 700; }
 
+/* ---------------------------------------------------------------- financial statements */
+.fs-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.fs-bar .chips { flex: 1; min-width: 0; }
+.fs-bar .seg button { display: inline-flex; align-items: center; gap: 6px; }
+.fs-card { padding: 26px 28px; }
+.fs-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.fs-head p { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.fs-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; }
+.fs-narrow { max-width: 640px; }
+table.fs { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.fs th { text-align: start; font-weight: 400; padding: 7px 8px; color: var(--ink-2); line-height: 1.6; }
+table.fs th small { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+table.fs td { text-align: end; padding: 7px 8px; white-space: nowrap; font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: plaintext; width: 1%; vertical-align: top; }
+table.fs td.neg { color: var(--bad); }
+table.fs tr.line + tr.line th, table.fs tr.line + tr.line td { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+table.fs tr.section th { padding-top: 18px; font-size: 12px; font-weight: 700; color: var(--muted); }
+table.fs tr.section:first-child th { padding-top: 4px; }
+table.fs tr.subtotal th, table.fs tr.subtotal td { font-weight: 700; color: var(--ink); }
+table.fs tr.opening th, table.fs tr.opening td { font-weight: 700; color: var(--ink); }
+table.fs tr.subtotal td { box-shadow: inset 0 1px 0 var(--line-2); }
+table.fs tr.total th, table.fs tr.total td { font-weight: 700; font-size: 15px; color: var(--ink); padding-top: 12px; padding-bottom: 10px; }
+table.fs tr.total td { box-shadow: inset 0 1px 0 var(--line-2), inset 0 -4px 0 var(--clay), inset 0 -5px 0 var(--ink-2), inset 0 -7px 0 var(--clay), inset 0 -8px 0 var(--ink-2); }
+
 /* ---------------------------------------------------------------- responsive */
 @media (max-width: 1180px) {
   .ticket { position: static; max-height: none; overflow: visible; }
@@ -145,6 +171,10 @@ details.fold[open] > summary::after { transform: rotate(135deg); }
   .plist { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .pc-img { width: 52px; height: 52px; }
   .start-choice { grid-template-columns: minmax(0, 1fr); }
+  .fs-card { padding: 18px 14px; }
+  .fs-split { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .fs-bar .seg { width: 100%; }
+  .fs-bar .seg button { flex: 1; justify-content: center; padding: 0 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .pc-qty.bump { animation: none; }

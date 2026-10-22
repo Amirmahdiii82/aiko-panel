@@ -66,6 +66,11 @@ export async function render(view, params, { setTitle }) {
       if (g.error) items.push({ tone: "bad", ico: "circle-alert", text: `${g.mod.info.name}: ${g.error}`, href: `#/${g.mod.info.id}` });
       for (const a of g.alerts || []) items.push(a);
     }
+    const du = setup?.drive?.ok && setup.drive.usage;
+    if (du && (du.errors || du.held)) {
+      items.push({ tone: "warn", ico: "folder", text: `${fa(du.errors + du.held)} رسید به گوگل درایو نرفته`,
+        sub: du.held ? "سقف فضای رسیدها پر شده" : "ارسال ناموفق بود", href: "#/settings/drive" });
+    }
     if (setup) {
       for (const it of ITEMS.filter((i) => !i.optional && !setup[i.key]?.ok)) {
         items.push({ tone: "warn", ico: it.ico, text: `${it.title} تنظیم نشده`, sub: it.need, setup: it.key });

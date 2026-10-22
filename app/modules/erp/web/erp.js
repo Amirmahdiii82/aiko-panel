@@ -1,6 +1,6 @@
 // ERP state and ERP-only helpers (accounts, channels, stock and site badges).
 // `erp.me` is the ERP boot data (accounts, partners, channels, settings, ...) loaded when the module opens.
-import { api, choiceChips, fa, html, icon, selectOptions } from "/static/js/kit.js";
+import { api, choiceChips, confirmBox, delegate, fa, html, icon, receiptLink, selectOptions, toast, upload } from "/static/js/kit.js";
 
 export const erp = { me: null };
 
@@ -36,7 +36,7 @@ export function stockBadge(p) {
   if (p.stock <= p.low_stock) return html`<span class="badge warn">${fa(p.stock)} عدد</span>`;
   return html`<span class="badge ok">${fa(p.stock)} عدد</span>`;
 }
-/** Stock sync state of a linked product (see stocksync.py: the panel keeps stock, the site shows it). */
+/** Stock sync state of a linked product (see site/stock.py: the panel keeps stock, the site shows it). */
 export const WOO_STATE = {
   ok: { cls: "ok", ico: "globe", label: "هماهنگ", tip: "موجودی اینجا و سایت یکی است" },
   pending: { cls: "info", ico: "loader-circle", label: "در حال ارسال", tip: "چند ثانیه دیگر سایت همین عدد را نشان می‌دهد" },
@@ -51,4 +51,31 @@ export function wooBadge(p) {
   const st = WOO_STATE[p.woo_state];
   if (!st) return html`<span class="badge primary" title="وصل است؛ در بررسی بعدی با سایت مقایسه می‌شود">${icon("link")}وصل</span>`;
   return html`<span class="badge ${st.cls}" title="${p.woo_state === "error" ? p.woo_error || "" : st.tip}">${icon(st.ico)}${st.label}</span>`;
+}
+
+/** The receipt of a sale or purchase: see it, add or replace it (photo or PDF), remove it, open it in Google Drive. */
+export function receiptBox(receipt, driveLink) {
+  return html`<div class="receipt-box">
+    ${receipt ? receiptLink(receipt) : html`<span class="thumb">${icon("paperclip", "sm")}</span>`}
+    <div class="grow"><b class="small">${receipt ? "رسید پیوست است" : "رسیدی پیوست نشده"}</b>
+      <div class="tiny muted">${driveLink ? html`<a href="${driveLink}" target="_blank" rel="noopener">${icon("folder", "sm")} در گوگل درایو</a>` : receipt ? "عکس یا PDF" : "عکس فاکتور، کارت‌خوان یا PDF"}</div></div>
+    <label class="btn xs soft">${receipt ? "تعویض" : html`${icon("plus", "sm")} افزودن`}<input type="file" accept="image/*,application/pdf" hidden data-receipt-file></label>
+    ${receipt ? html`<button class="btn xs ghost icon" data-receipt-remove aria-label="حذف رسید" title="حذف رسید">${icon("trash-2", "sm")}</button>` : ""}
+  </div>`;
+}
+export function bindReceiptBox(root, kind, id, done) {
+  const save = async (path) => {
+    const r = await api(`/api/erp/${kind}/${id}/receipt`, { method: "PUT", body: { receipt: path } });
+    toast(path ? "رسید ذخیره شد" : "رسید حذف شد");
+    done?.(r);
+  };
+  delegate(root, "change", "[data-receipt-file]", async (e, input) => {
+    const file = input.files[0];
+    if (!file) return;
+    input.closest(".receipt-box").classList.add("busy");
+    try { await save((await upload(file)).path); } finally { input.value = ""; }
+  });
+  delegate(root, "click", "[data-receipt-remove]", async () => {
+    if (await confirmBox("رسید حذف شود؟", { danger: true, okText: "حذف" })) save(null);
+  });
 }

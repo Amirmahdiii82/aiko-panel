@@ -386,13 +386,14 @@ def create_sale(con, data: dict, user: dict | None, *, quiet: bool = False, lega
     cur = con.execute(
         """INSERT INTO sales (code, date, channel, seller_id, customer_name, customer_phone, subtotal, discount, shipping,
                               total, cogs, commission, paid, account_id, status, woo_order_id, woo_status, note,
-                              refunded, fees, tax, source, created_by, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              refunded, fees, tax, source, receipt, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (data.get("code"), _date(data.get("date")), channel, seller_id, (data.get("customer_name") or "").strip() or None,
          (data.get("customer_phone") or "").strip() or None, subtotal, discount, shipping, total, cogs, commission,
          paid, account_id, data.get("woo_order_id"), data.get("woo_status"), (data.get("note") or "").strip() or None,
          _int(data.get("refunded"), "مبلغ برگشتی"), _int(data.get("fees"), "کارمزد", minimum=None),
-         _int(data.get("tax"), "مالیات"), source, user["id"] if user else None, db.now(), db.now()))
+         _int(data.get("tax"), "مالیات"), source, (data.get("receipt") or "").strip() or None,
+         user["id"] if user else None, db.now(), db.now()))
     sale_id = cur.lastrowid
     if not data.get("code"):
         con.execute("UPDATE sales SET code = ? WHERE id = ?", (f"S-{sale_id}", sale_id))

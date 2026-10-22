@@ -30,7 +30,7 @@ export async function render(view, params, { setTitle, query }) {
   const channelAccount = (c) => (erp.me.settings.channel_accounts || {})[c] || null;
   const fresh = {
     sell: () => ({ channel: admin ? "in_person" : "agent", date: erp.me.today, paid: true, account_id: admin ? channelAccount("in_person") : erp.me.user.account_id,
-      seller_id: erp.me.user.id, discount: 0, shipping: 0, customer_name: "", customer_phone: "", note: "" }),
+      seller_id: erp.me.user.id, discount: 0, shipping: 0, customer_name: "", customer_phone: "", note: "", receipt: "" }),
     buy: () => ({ date: erp.me.today, supplier: "", account_id: erp.me.user.account_id || null, shipping: 0, note: "", receipt: "" }),
   };
   const meta = { sell: fresh.sell(), buy: fresh.buy() };
@@ -174,8 +174,8 @@ export async function render(view, params, { setTitle, query }) {
           <label class="check small"><span class="switch"><input type="checkbox" name="paid" ${x.paid ? "checked" : ""}><span></span></span>${x.paid ? "پرداخت شد" : "نسیه"}</label>
         </div>
       </div>
-      <details class="ticket-more" ${x.discount || x.shipping || x.note || x.customer_name || (admin && x.date !== erp.me.today) ? "open" : ""}>
-        <summary>${icon("plus", "sm")} مشتری، تخفیف، ارسال، تاریخ و یادداشت</summary>
+      <details class="ticket-more" ${x.discount || x.shipping || x.note || x.customer_name || x.receipt || (admin && x.date !== erp.me.today) ? "open" : ""}>
+        <summary>${icon("plus", "sm")} مشتری، تخفیف، ارسال، رسید، تاریخ و یادداشت</summary>
         <div class="stack s12 mt12">
           <div class="form-grid">
             <div class="field"><label>نام مشتری</label><input class="input sm" name="customer_name" value="${x.customer_name}" placeholder="اختیاری"></div>
@@ -188,6 +188,7 @@ export async function render(view, params, { setTitle, query }) {
               </select></div>` : ""}
           </div>
           <div class="field"><label>یادداشت</label><input class="input sm" name="note" value="${x.note}" placeholder="مثلاً: ارسال با پیک"></div>
+          ${uploadField({ name: "receipt", label: "رسید / فیش واریز (اختیاری)", value: x.receipt })}
         </div>
       </details>`;
   }
@@ -249,7 +250,7 @@ export async function render(view, params, { setTitle, query }) {
     const f = formData(form), x = m();
     if (mode === "sell") {
       Object.assign(x, { channel: f.channel || x.channel, paid: !!f.paid, customer_name: f.customer_name || "", customer_phone: f.customer_phone || "",
-        note: f.note || "", discount: f.discount || 0, shipping: f.shipping || 0 });
+        note: f.note || "", discount: f.discount || 0, shipping: f.shipping || 0, receipt: f.receipt || "" });
       if (admin) Object.assign(x, { account_id: Number(f.account_id) || null, date: f.date || x.date, seller_id: Number(f.seller_id) || x.seller_id });
     } else {
       Object.assign(x, { supplier: f.supplier || "", account_id: Number(f.account_id) || null, shipping: f.shipping || 0, date: f.date || x.date,

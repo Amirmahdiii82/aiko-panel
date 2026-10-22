@@ -9,6 +9,7 @@ const CORE_TABS = [
   { key: "connections", label: "سایت و اتصال‌ها", ico: "plug" },
   { key: "notify", label: "اعلان‌ها", ico: "bot" },
   { key: "backup", label: "پشتیبان", ico: "database" },
+  { key: "drive", label: "رسیدها در گوگل درایو", ico: "folder" },
   { key: "system", label: "سیستم", ico: "server" },
 ];
 // module tabs: which modules have their own settings, and the label shown here
@@ -41,6 +42,7 @@ export async function render(view, params, { setTitle }) {
     else if (tab === "connections") connectionsTab(el);
     else if (tab === "notify") await notifyTab(el);
     else if (tab === "backup") await backupTab(el);
+    else if (tab === "drive") { el.innerHTML = String(formCard("drive", "folder", "رسیدها در گوگل درایو")); fillForms(el); }
     else if (tab === "system") await systemTab(el);
     else cleanup = await moduleTab(el, tab, sub);
   };

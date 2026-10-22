@@ -11,10 +11,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
-from . import activity, auth, backup, bot, config, db, events, integrations, jobs
+from . import activity, auth, backup, bot, config, db, drive, events, integrations, jobs
 from .modules import loaded as modules
 
 log = logging.getLogger("aiko.core")
@@ -361,6 +361,7 @@ def setup_status(user=Admin):
                 "chat_ids": n.get("chat_ids") or ""},
         "backup": {"ok": bool(t["enabled"] and t["chat_id"] and t["last_ok"] is not False), **t},
         "openrouter": {"ok": bool(key), "key_hint": f"…{key[-4:]}" if key else ""},
+        "drive": {"ok": drive.connected(), "email": drive.settings().get("email") or "", "usage": drive.usage()},
     }
 
 
@@ -406,6 +407,91 @@ async def integrations_woo_test(user=Admin):
 @router.post("/api/integrations/proxy/test")
 async def integrations_proxy_test(user=Admin):
     return await integrations.test_proxy()
+
+
+# ---------------------------------------------------------------- receipts in Google Drive
+def _drive_redirect(request: Request) -> str:
+    return f"{config.PUBLIC_URL or str(request.base_url).rstrip('/')}/api/drive/callback"
+
+
+def _drive_call(fn):
+    try:
+        return fn()
+    except drive.DriveError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/api/drive")
+def drive_get(request: Request, user=Admin):
+    return drive.public_view(_drive_redirect(request))
+
+
+@router.put("/api/drive")
+async def drive_save(request: Request, user=Admin):
+    body = await request.json()
+    changes = {}
+    if "client_id" in body:
+        changes["client_id"] = (body["client_id"] or "").strip()
+    if (body.get("client_secret") or "").strip():
+        changes["client_secret"] = body["client_secret"].strip()
+    if "cap_mb" in body:
+        changes["cap_mb"] = max(100, min(200_000, int(body["cap_mb"] or drive.DEFAULT_CAP_MB)))
+        changes["cap_warned"] = False
+    drive.save(changes)
+    if "cap_mb" in body:
+        drive.retry()
+    return drive.public_view(_drive_redirect(request))
+
+
+@router.get("/api/drive/connect", include_in_schema=False)
+def drive_connect(request: Request, user=Admin):
+    """Opened in the browser: goes to Google's consent page, which comes back to /api/drive/callback."""
+    return RedirectResponse(_drive_call(lambda: drive.auth_url(_drive_redirect(request))))
+
+
+@router.get("/api/drive/callback", include_in_schema=False)
+async def drive_callback(request: Request, user=Admin):
+    q = request.query_params
+    if q.get("error"):
+        drive.save({"last_error": f"اجازه داده نشد ({q.get('error')})"})
+        return RedirectResponse("/#/settings/drive")
+    try:
+        r = await drive.finish_connect(q.get("code") or "", q.get("state") or "", _drive_redirect(request))
+    except drive.DriveError as exc:
+        drive.save({"last_error": str(exc)})
+        return RedirectResponse("/#/settings/drive")
+    activity.record(None, "core", "drive", "گوگل درایو برای رسیدها وصل شد", f"{r['email']} — توسط {user['name']}",
+                    user_id=user["id"], level="success")
+    return RedirectResponse("/#/settings/drive")
+
+
+@router.post("/api/drive/test")
+async def drive_test(user=Admin):
+    try:
+        await drive.ensure_folder([])
+        return {"quota": await drive.quota()}
+    except drive.DriveError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/api/drive/backfill")
+def drive_backfill(user=Admin):
+    """Send receipts recorded before Drive was connected (and invoices of recent website orders)."""
+    if not drive.connected():
+        raise HTTPException(400, "اول گوگل درایو را وصل کنید")
+    return {"queued": drive.backfill()}
+
+
+@router.post("/api/drive/retry")
+def drive_retry(user=Admin):
+    return {"queued": drive.retry()}
+
+
+@router.post("/api/drive/disconnect")
+def drive_disconnect(user=Admin):
+    drive.disconnect()
+    activity.record(None, "core", "drive", "اتصال گوگل درایو قطع شد", f"توسط {user['name']}", user_id=user["id"], level="warning")
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------- off-site backups in a Telegram channel
@@ -520,7 +606,41 @@ async def upload(file: UploadFile = File(...), user=User):
                 dest.unlink(missing_ok=True)
                 raise HTTPException(400, f"حداکثر حجم فایل {config.MAX_UPLOAD_MB} مگابایت است")
             out.write(chunk)
-    return {"path": rel.as_posix()}
+    if ext == ".pdf" and size > PDF_MAX_MB * 1024 * 1024:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(400, f"فایل PDF حداکثر {PDF_MAX_MB} مگابایت؛ از رسید عکس بگیرید یا PDF کوچک‌تری بفرستید")
+    dest = await run_in_threadpool(_shrink_photo, dest)
+    return {"path": dest.relative_to(config.UPLOAD_DIR).as_posix()}
+
+
+PDF_MAX_MB = 5
+PHOTO_EDGE, PHOTO_QUALITY, PHOTO_KEEP_BELOW = 1600, 80, 350 * 1024
+
+
+def _shrink_photo(path: Path) -> Path:
+    """A receipt photo needs to be readable, not 12 megapixels: longest side 1600px, JPEG quality 80 (usually
+    150–400 KB). Keeps every receipt small on the server and in Google Drive. Unreadable formats stay as they are."""
+    if path.suffix.lower() == ".pdf" or path.stat().st_size <= PHOTO_KEEP_BELOW and path.suffix.lower() in (".jpg", ".jpeg"):
+        return path
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(path) as im:
+            im = ImageOps.exif_transpose(im)
+            if im.mode not in ("RGB", "L"):
+                im = im.convert("RGB")
+            im.thumbnail((PHOTO_EDGE, PHOTO_EDGE))
+            out = path.with_suffix(".jpg")
+            tmp = out.with_name(out.stem + ".tmp.jpg")
+            im.save(tmp, "JPEG", quality=PHOTO_QUALITY, optimize=True, progressive=True)
+    except Exception:
+        return path
+    if tmp.stat().st_size >= path.stat().st_size and path.suffix.lower() in (".jpg", ".jpeg"):
+        tmp.unlink()
+        return path
+    tmp.replace(out)
+    if out != path:
+        path.unlink(missing_ok=True)
+    return out
 
 
 @router.get("/uploads/{path:path}", include_in_schema=False)
