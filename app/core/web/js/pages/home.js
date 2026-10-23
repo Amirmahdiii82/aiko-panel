@@ -1,6 +1,6 @@
 // Unified home: deliberately quiet. The greeting and today's headline sit in the top bar; below it, the few things
 // people actually do from here (quick actions), the four numbers that matter, one list of what needs attention from
-// every module (and unfinished setup, for owners), and the latest activity.
+// every module (and unfinished setup, for owners), and the latest activity folded away until someone opens it.
 // Modules feed it through `glance(data, role)` → { headline?, stats?: [...], alerts?: [...] } (see ARCHITECTURE.md).
 import { $, api, delegate, emptyState, fa, feedItem, html, icon, isOwner, jdate, on, state } from "../kit.js";
 import { ITEMS, openSetup } from "../setup.js";
@@ -19,16 +19,15 @@ export async function render(view, params, { setTitle }) {
     ${quick.length ? html`<nav class="actions" aria-label="کارهای سریع">${quick.slice(0, 5).map((q) => html`<a class="action" href="${q.href}">
       <span class="a-ico ${q.tone || "indigo"}">${icon(q.ico)}</span><span>${q.label}</span></a>`)}</nav>` : ""}
     <section class="stat-strip" id="stats" aria-label="آمار"><div class="skeleton" style="height:64px;width:100%"></div></section>
-    <div class="home-cols">
-      <section class="card">
-        <div class="card-head"><h2>${icon("list-checks")} نیاز به توجه</h2><span id="todo-count"></span></div>
-        <div class="todo" id="todo"><div class="skeleton" style="height:120px"></div></div>
-      </section>
-      <section class="card">
-        <div class="card-head"><h2>${icon("history")} آخرین رویدادها</h2><span class="spacer"></span><a class="btn xs ghost" href="#/activity">همه ${icon("chevron-left", "sm")}</a></div>
-        <div class="feed" id="feed"><div class="skeleton" style="height:160px"></div></div>
-      </section>
-    </div>
+    <section class="card">
+      <div class="card-head"><h2>${icon("list-checks")} نیاز به توجه</h2><span id="todo-count"></span></div>
+      <div class="todo" id="todo"><div class="skeleton" style="height:120px"></div></div>
+    </section>
+    <details class="fold">
+      <summary>${icon("history")} آخرین رویدادها<span class="spacer"></span>${icon("chevron-down", "sm f-chev")}</summary>
+      <div class="fold-body"><div class="feed" id="feed"></div>
+        <a class="btn xs ghost" href="#/activity">همه رویدادها ${icon("chevron-left", "sm")}</a></div>
+    </details>
     ${!mods.length ? emptyState("lock", "هنوز به بخشی دسترسی ندارید", "از مدیر بخواهید در «تیم و دسترسی‌ها» برایتان دسترسی فعال کند.") : ""}
   </div>`);
   delegate(view, "click", "[data-setup]", (e, el) => { e.preventDefault(); openSetup(el.dataset.setup, () => loadTodo()); });

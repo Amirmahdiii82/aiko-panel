@@ -276,7 +276,7 @@ def missing_costs(con, start: str = "2000-01-01", end: str = "2100-01-01") -> di
     return {"lines": r["lines"], "revenue": int(r["revenue"]), "products": r["products"], "stock_products": stock}
 
 
-def merge_products(con, source_id: int, target_id: int, user: dict) -> None:
+def merge_products(con, source_id: int, target_id: int, user: dict, *, quiet: bool = False) -> None:
     """Two records of the same item (e.g. one from the old sheet, one created from the site): move every
     sale, purchase and stock move of `source` to `target`, rebuild target's stock and cost, retire source."""
     if source_id == target_id:
@@ -298,9 +298,10 @@ def merge_products(con, source_id: int, target_id: int, user: dict) -> None:
                    category = COALESCE(category, ?) WHERE id = ?""", (src["image"], src["brand"], src["category"], target_id))
     recompute_product(con, target_id)
     fill_missing_costs(con, [target_id])
-    notify.activity(con, "merge", f"«{src['name']}» با «{dst['name']}» ادغام شد",
-                    "همه فروش‌ها، خریدها و موجودی به یک محصول منتقل شد.", user_id=user["id"],
-                    link=f"#/erp/products/{target_id}")
+    if not quiet:
+        notify.activity(con, "merge", f"«{src['name']}» با «{dst['name']}» ادغام شد",
+                        "همه فروش‌ها، خریدها و موجودی به یک محصول منتقل شد.", user_id=user["id"],
+                        link=f"#/erp/products/{target_id}")
     notify.publish_after(con, {"type": "refresh", "scope": "products"})
 
 

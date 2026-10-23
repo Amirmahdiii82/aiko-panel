@@ -203,9 +203,6 @@ def dashboard(con, user: dict) -> dict:
     today_row = con.execute("""SELECT COUNT(*), IFNULL(SUM(total), 0) FROM sales
                                WHERE status = 'done' AND date = ?""", (today,)).fetchone()
     start30 = ms
-    low = db.rows(con.execute(
-        """SELECT id, name, stock, low_stock, image, woo_id FROM products
-           WHERE active = 1 AND stock <= low_stock ORDER BY stock, name LIMIT 12"""))
     sync_errors = con.execute("""SELECT COUNT(*) FROM products WHERE active = 1 AND woo_id IS NOT NULL
                                  AND woo_state IN ('error', 'gone')""").fetchone()[0]
     pending = con.execute("""SELECT COUNT(*) FROM products WHERE active = 1 AND woo_id IS NOT NULL
@@ -228,7 +225,6 @@ def dashboard(con, user: dict) -> dict:
         "period": recent_sales, "period_label": RECENT_LABEL, "prev_period": prev,
         "daily": daily_series(con, start30, today),
         "channels": channels,
-        "low_stock": low,
         "inventory": inventory_stats(con),
         "money": ledger.summary_money(con),
         "partners": ledger.partner_positions(con),

@@ -1,10 +1,10 @@
-// Home: today at a glance, what needs attention, partner balance, live activity.
+// Home: today at a glance, what needs attention, partner balance; the live activity folded away until opened.
 import { $, api, compact, delegate, fa, html, icon, jdate, num, on, pct, state, toman } from "/static/js/kit.js";
 import { barChart } from "/static/js/kit.js";
-import { avatar, barList, delta, emptyState, feedItem, moneyKpi, thumb } from "/static/js/kit.js";
+import { avatar, barList, delta, emptyState, feedItem, moneyKpi } from "/static/js/kit.js";
 import { openExpenseForm } from "./expenses.js";
 import { openSettlement } from "./money.js";
-import { CHANNEL_ICON, erp, isAdmin, stockBadge } from "../erp.js";
+import { CHANNEL_ICON, erp, isAdmin } from "../erp.js";
 
 export async function render(view, params, { setTitle }) {
   const hour = Number(new Date().toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Tehran" }));
@@ -59,22 +59,16 @@ function adminHome(d) {
   if (money.with_agents > 0) alerts.push({ ico: "hand-coins", cls: "info", text: `${toman(money.with_agents)} پول نزد فروشنده‌ها`, link: "#/erp/money" });
 
   return html`<div class="stack erp-dashboard erp-admin-dashboard">
-    <section class="hero">
-      <span class="blob-deco" style="width:220px;height:220px;left:-60px;top:-80px"></span>
-      <span class="blob-deco" style="width:140px;height:140px;left:22%;bottom:-70px;opacity:.1"></span>
-      <div class="row between">
-        <div>
-          <h1>امروز ${d.today.orders ? html`${fa(d.today.orders)} فروش به مبلغ <span class="num">${compact(d.today.revenue)}</span> تومان` : "هنوز فروشی ثبت نشده"}</h1>
-          <p class="muted">${d.period_label}: ${fa(m.orders)} فروش، سود خالص ${compact(m.net)} تومان</p>
-        </div>
-      </div>
+    <div class="dash-head">
+      <h1>امروز ${d.today.orders ? html`${fa(d.today.orders)} فروش به مبلغ <span class="num">${compact(d.today.revenue)}</span> تومان` : "هنوز فروشی ثبت نشده"}</h1>
+      <p class="muted">${d.period_label}: ${fa(m.orders)} فروش، سود خالص ${compact(m.net)} تومان</p>
       <div class="quick">
-        <button data-link="#/erp/sell"><span class="q-ico" style="background:linear-gradient(135deg,#F6A496,#D27C6D)">${icon("shopping-bag")}</span><span>ثبت فروش<small>حضوری، دایرکت، دوستان</small></span></button>
-        <button data-act="expense"><span class="q-ico" style="background:linear-gradient(135deg,#D297BE,#AC6E97)">${icon("receipt")}</span><span>ثبت هزینه<small>با عکس رسید</small></span></button>
-        <button data-link="#/erp/sell?mode=buy"><span class="q-ico" style="background:linear-gradient(135deg,#978DB3,#5B4B87)">${icon("truck")}</span><span>خرید کالا<small>ورود به انبار</small></span></button>
-        <button data-link="#/erp/products?f=out"><span class="q-ico" style="background:linear-gradient(135deg,#9CC4A3,#4D6F54)">${icon("package")}</span><span>موجودی<small>ناموجود کردن سریع</small></span></button>
+        <button data-link="#/erp/sell"><span class="q-ico">${icon("shopping-bag")}</span><span>ثبت فروش</span></button>
+        <button data-act="expense"><span class="q-ico">${icon("receipt")}</span><span>ثبت هزینه</span></button>
+        <button data-link="#/erp/sell?mode=buy"><span class="q-ico">${icon("truck")}</span><span>خرید کالا</span></button>
+        <button data-link="#/erp/products?f=out"><span class="q-ico">${icon("package")}</span><span>موجودی</span></button>
       </div>
-    </section>
+    </div>
 
     <div class="grid g4 erp-kpis">
       ${moneyKpi({ label: "فروش ۳۰ روز اخیر", amount: m.revenue, color: "indigo", ico: "trending-up",
@@ -100,7 +94,7 @@ function adminHome(d) {
       </section>
     </div>
 
-    <div class="grid g3 erp-ops">
+    <div class="grid g2 erp-ops">
       <section class="card">
         <div class="card-head"><h2>${icon("bell")} نیاز به توجه</h2></div>
         ${alerts.length ? html`<div class="list">${alerts.map((a) => html`<div class="list-item clickable" data-link="${a.link}">
@@ -124,20 +118,14 @@ function adminHome(d) {
           ${money.receivable ? html`<div class="list-item"><span class="grow">طلب از مشتری‌ها</span><b class="num">${compact(money.receivable)}</b></div>` : ""}
         </div>
       </section>
-      <section class="card">
-        <div class="card-head"><h2>${icon("package-minus")} رو به اتمام</h2><span class="spacer"></span><a class="btn xs ghost" href="#/erp/products?f=low">همه</a></div>
-        ${d.low_stock.length ? html`<div class="list">${d.low_stock.slice(0, 6).map((p) => html`<div class="list-item clickable" data-link="#/erp/products/${p.id}">
-            ${thumb(p, "sm")}<span class="grow ellipsis small">${p.name}</span>${stockBadge(p)}</div>`)}</div>`
-          : emptyState("package", "موجودی همه محصولات کافی است")}
-      </section>
     </div>
 
-    <section class="card">
-      <div class="card-head"><h2>${icon("history")} آخرین رویدادها</h2><span class="spacer"></span>
-        <span class="small muted row nowrap"><span class="live-dot ${state.live ? "" : "off"}"></span> زنده</span>
-        <a class="btn xs ghost" href="#/activity?module=erp">همه</a></div>
-      <div class="feed" id="feed">${d.recent.map(feedItem)}</div>
-    </section>
+    <details class="fold">
+      <summary>${icon("history")} آخرین رویدادها<span class="spacer"></span>
+        <span class="small muted row nowrap"><span class="live-dot ${state.live ? "" : "off"}"></span> زنده</span>${icon("chevron-down", "sm f-chev")}</summary>
+      <div class="fold-body"><div class="feed" id="feed">${d.recent.map(feedItem)}</div>
+        <a class="btn xs ghost" href="#/activity?module=erp">همه رویدادها ${icon("chevron-left", "sm")}</a></div>
+    </details>
   </div>`;
 }
 

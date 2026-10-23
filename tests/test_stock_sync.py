@@ -342,9 +342,18 @@ def test_a_hand_count_with_costs_sets_the_unit_cost(site, tmp_path, monkeypatch,
         assert con.execute("SELECT unit_cost FROM sale_items").fetchone()[0] == 380_000
 
 
-def test_an_empty_panel_takes_the_shipped_count_and_the_site_follows(site):
-    """The real shipped count on an empty panel: every site item becomes a product with the counted number and cost."""
+@pytest.mark.parametrize("messy", [False, True])
+def test_the_shipped_count_leaves_exactly_the_site_items_and_the_site_follows(site, messy):
+    """The real shipped count, on an empty panel or on one mixed with old sheet rows: afterwards the warehouse is
+    exactly the site's items with the counted numbers and costs, and old sales stay."""
     import json as _json
+    if messy:
+        with db.tx() as con:
+            dup = ledger.create_product(con, {"name": "مداد قهوه‌ای فلورمار Flormar ابرو", "stock": 4, "avg_cost": 70_000}, None, quiet=True)
+            ledger.create_sale(con, {"channel": "in_person", "items": [{"product_id": dup, "qty": 1, "unit_price": 185_000}]},
+                               None, quiet=True)
+            ledger.create_product(con, {"name": "رژ لب جامد کیکو میلانو", "stock": 6}, None, quiet=True)
+            ledger.create_product(con, {"name": "مداد چشم زرشکی گلدن رز", "stock": 3}, None, quiet=True)
     plan = _json.loads(stock.COUNT_FILES[-1].read_text(encoding="utf-8"))
     for it in plan["items"]:
         if it["variation_id"]:
@@ -357,8 +366,14 @@ def test_an_empty_panel_takes_the_shipped_count_and_the_site_follows(site):
     assert report["count"]["missing"] == []
     run(stock.push_pending())
     with db.read() as con:
-        units, value = con.execute("SELECT SUM(stock), SUM(stock * avg_cost) FROM products WHERE active = 1").fetchone()
+        units, value, n, loose = con.execute("""SELECT SUM(stock), SUM(stock * avg_cost), COUNT(*),
+                                                       SUM(woo_id IS NULL) FROM products WHERE active = 1""").fetchone()
+        sold = con.execute("SELECT p.woo_id FROM sale_items i JOIN products p ON p.id = i.product_id").fetchall()
+    assert n == len(plan["items"]) and loose == 0
     assert units == sum(i["qty"] for i in plan["items"]) and value == sum(i["qty"] * i["cost"] for i in plan["items"])
+    if messy:
+        assert report["count"]["merged"] == ["مداد قهوه‌ای فلورمار Flormar ابرو"] and len(report["count"]["retired"]) == 2
+        assert [r[0] for r in sold] == [410]          # the old sale now belongs to the site product
     for it in plan["items"]:
         on_site = (site.variations[it["woo_id"]][it["variation_id"]] if it["variation_id"]
                    else site.products[it["woo_id"]])["stock_quantity"]

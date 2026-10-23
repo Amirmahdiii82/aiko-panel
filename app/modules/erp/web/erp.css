@@ -30,6 +30,9 @@
   box-shadow: 0 2px 8px rgba(var(--tint), .045);
 }
 .erp-ui .hero .blob-deco { display: none; }
+/* the dashboard's top: plain text and one row of actions, not a box around boxes */
+.dash-head { padding: 4px 4px 0; }
+.dash-head h1 { font-size: 21px; }
 .erp-ui .quick { gap: 10px; margin-top: 16px; }
 .erp-ui .quick button {
   padding: 11px 12px;
@@ -49,7 +52,6 @@
 }
 .erp-ui .quick button small { font-size: 11.5px; }
 .erp-dashboard { gap: 16px; }
-.erp-dashboard .hero h1 { font-size: 21px; }
 .erp-dashboard .erp-kpis { gap: 12px; }
 .erp-dashboard .erp-analysis { gap: 14px; }
 .erp-dashboard .erp-ops { gap: 14px; }
@@ -61,6 +63,7 @@
   .erp-ui .card { padding: 16px; border-radius: 16px; }
   .erp-ui .card.tight { padding: 13px; }
   .erp-ui .hero { padding: 18px; border-radius: 16px; }
+  .dash-head h1 { font-size: 18px; }
   .erp-ui .quick button { flex-direction: row; align-items: center; padding: 10px; }
   .erp-ui .quick button small { display: none; }
   .erp-dashboard .erp-kpis { gap: 10px; }

@@ -140,7 +140,8 @@ COUNT_FILES = sorted((Path(__file__).resolve().parents[1] / "data").glob("stock_
 
 def apply_count(con, entries: list[dict]) -> dict | None:
     """A full hand count of the shop (data/stock_count_*.json: site product/color ids → counted number and, optionally,
-    unit cost; plus items only kept here), applied once: the panel takes the counted numbers and, being the one place stock is kept, sends
+    unit cost; plus items only kept here; with "tidy", products not on the site are merged or retired first —
+    see matching.tidy), applied once: the panel takes the counted numbers and, being the one place stock is kept, sends
     them to the site. Only on the shop it was made for — most of its site ids must be in this catalogue — so a test or
     an empty database never gets it. A product linked as a whole to one with colors is split into its colors first."""
     result = None
@@ -154,6 +155,7 @@ def apply_count(con, entries: list[dict]) -> dict | None:
         by_key = {(e["woo_id"], e["variation_id"]): e for e in entries}
         system = {"id": None, "name": plan["label"]}
         split = changed = same = costed = 0
+        tidied = matching.tidy(con, plan["label"]) if plan.get("tidy") else {"merged": [], "retired": []}
         for parent in sorted({i["woo_id"] for i in plan["items"] if i["variation_id"]}):
             whole = db.one(con.execute("""SELECT id FROM products WHERE active = 1 AND woo_id = ?
                                           AND woo_variation_id IS NULL""", (parent,)))
@@ -200,11 +202,14 @@ def apply_count(con, entries: list[dict]) -> dict | None:
                         f"{ledger.fa(changed)} عدد عوض شد، {ledger.fa(same)} همان بود"
                         + (f"، قیمت خرید {ledger.fa(costed)} کالا به‌روز شد" if costed else "")
                         + (f"، {ledger.fa(split)} محصول به رنگ‌ها تفکیک شد" if split else "")
+                        + (f"، {ledger.fa(len(tidied['merged']))} محصول تکراری با محصول سایت ادغام شد" if tidied["merged"] else "")
+                        + (f"، {ledger.fa(len(tidied['retired']))} محصول قدیمی که در سایت نیست بایگانی شد (فروش‌هایش در گزارش‌ها می‌ماند)"
+                           if tidied["retired"] else "")
                         + ". سایت هم همین اعداد را می‌گیرد."
                         + (f" پیدا نشد: {'، '.join(missing[:5])}" if missing else ""),
                         level="success" if not missing else "warning", link="#/erp/site", notify=True)
         result = {"label": plan["label"], "changed": changed, "same": same, "costed": costed, "split": split,
-                  "missing": missing}
+                  "missing": missing, **tidied}
     return result
 
 

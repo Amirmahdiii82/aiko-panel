@@ -797,6 +797,17 @@ a.stat[href]:active { background: var(--clay-2); }
 .stat .s-unit { font-size: 11.5px; color: var(--muted); }
 .stat.bad .s-value { color: var(--bad); }
 
+/* fold: secondary content (the latest activity, …) closed by default, no box of its own — one line until opened */
+.fold { border-top: 1px solid var(--line); }
+.fold > summary { list-style: none; display: flex; align-items: center; gap: 8px; padding: 14px 4px; cursor: pointer;
+  font-weight: 600; font-size: 15px; color: var(--ink-2); border-radius: 12px; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary .spacer { flex: 1; }
+.fold > summary .f-chev { transition: transform 160ms ease; color: var(--muted); }
+.fold[open] > summary .f-chev { transform: rotate(180deg); }
+.fold > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.fold-body { padding: 0 0 8px; }
+
 .home-cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .home-cols .card-head { margin-bottom: 8px; }
 .todo { display: flex; flex-direction: column; }
@@ -951,6 +962,7 @@ a.chip { text-decoration: none; }
    progress stays visible; press feedback stays. */
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
+  .fold > summary .f-chev { transition: none; }
   .page-enter, .success-burst { animation-name: fade; animation-timing-function: ease; }
   .success-burst svg path { animation: none; stroke-dashoffset: 0; }
   .sheet, .sheet.side, .scrim.show .sheet { transform: none !important; }

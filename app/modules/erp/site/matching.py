@@ -218,6 +218,30 @@ def settle_openings(con, entries: list[dict]) -> int:
     return n
 
 
+def tidy(con, note: str) -> dict:
+    """Leave only the site's items in the warehouse. A product not linked to the site is a leftover: an old sheet
+    row or a second record of a site item. Its history moves into the site product it clearly is (a strong match
+    with one site product that has no colors); otherwise it is retired with stock 0, its sales and purchases kept."""
+    linked = db.rows(con.execute("SELECT id, name, woo_name, woo_id FROM products WHERE active = 1 AND woo_id IS NOT NULL"))
+    colors: dict[int, int] = {}
+    for q in linked:
+        colors[q["woo_id"]] = colors.get(q["woo_id"], 0) + 1
+    merged, retired = [], []
+    for p in db.rows(con.execute("SELECT id, name, stock FROM products WHERE active = 1 AND woo_id IS NULL")):
+        ranked = sorted(((max(score(p["name"], q["name"]), score(p["name"], q["woo_name"] or "")), q) for q in linked),
+                        key=lambda x: -x[0])
+        if ranked and ranked[0][0] >= 0.8 and colors[ranked[0][1]["woo_id"]] == 1 \
+                and (len(ranked) == 1 or ranked[1][0] <= ranked[0][0] - 0.1):
+            ledger.merge_products(con, p["id"], ranked[0][1]["id"], {"id": None}, quiet=True)
+            merged.append(p["name"])
+            continue
+        if p["stock"]:
+            ledger.add_move(con, p["id"], -p["stock"], "adjust", note=note, quiet=True)
+        con.execute("UPDATE products SET active = 0, updated_at = ? WHERE id = ?", (db.now(), p["id"]))
+        retired.append(p["name"])
+    return {"merged": merged, "retired": retired}
+
+
 def duplicates(con, limit: int = 40) -> list[dict]:
     """Panel products that are not on the site next to a site product with a similar name: probably the same
     item recorded twice (e.g. once in the sheet, once on the site). Offered for merging, never merged alone."""
