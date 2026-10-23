@@ -89,8 +89,8 @@ def summary(user: dict) -> dict:
             from .deps import _with_profile
             return seller_home(con, _with_profile(user))
         today = db.today()
-        ms, me, label = reports.period_bounds("month")
-        month = reports._sales_totals(con, ms, me)
+        ms, me, _, _ = reports.recent_bounds()
+        period = reports._sales_totals(con, ms, me)
         t = con.execute("SELECT COUNT(*), IFNULL(SUM(total), 0) FROM sales WHERE status = 'done' AND date = ?",
                         (today,)).fetchone()
         inv = con.execute("""SELECT SUM(CASE WHEN stock <= 0 THEN 1 ELSE 0 END),
@@ -101,7 +101,7 @@ def summary(user: dict) -> dict:
                                      SUM(CASE WHEN woo_state = 'nocount' THEN 1 ELSE 0 END)
                               FROM products WHERE active = 1 AND woo_id IS NOT NULL""").fetchone()
     s = client.settings()
-    return {"today": {"orders": t[0], "revenue": int(t[1])}, "month": month, "month_label": label,
+    return {"today": {"orders": t[0], "revenue": int(t[1])}, "period": period, "period_label": reports.RECENT_LABEL,
             "out_count": inv[0] or 0, "low_count": inv[1] or 0, "stock_value": int(inv[2] or 0),
             "site": {"configured": client.configured(s),
                      "problems": site[0] or 0, "nocount": site[1] or 0}}

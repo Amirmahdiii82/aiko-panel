@@ -184,15 +184,25 @@ def inventory_stats(con) -> dict:
             "slow": slow}
 
 
+RECENT_LABEL = "۳۰ روز اخیر"
+
+
+def recent_bounds(days: int = 30) -> tuple[str, str, str, str]:
+    """The last `days` days up to today and the same length just before: a calendar month reads zero on its first day."""
+    today = date.fromisoformat(db.today())
+    start = today - timedelta(days=days - 1)
+    return (start.isoformat(), today.isoformat(),
+            (start - timedelta(days=days)).isoformat(), (start - timedelta(days=1)).isoformat())
+
+
 def dashboard(con, user: dict) -> dict:
     today = db.today()
-    ms, me, mlabel = period_bounds("month")
-    month = _sales_totals(con, ms, me)
-    prev_s, prev_e, _ = period_bounds("last_month")
+    ms, me, prev_s, prev_e = recent_bounds()
+    recent_sales = _sales_totals(con, ms, me)
     prev = _sales_totals(con, prev_s, prev_e)
     today_row = con.execute("""SELECT COUNT(*), IFNULL(SUM(total), 0) FROM sales
                                WHERE status = 'done' AND date = ?""", (today,)).fetchone()
-    start30 = (date.fromisoformat(today) - timedelta(days=29)).isoformat()
+    start30 = ms
     low = db.rows(con.execute(
         """SELECT id, name, stock, low_stock, image, woo_id FROM products
            WHERE active = 1 AND stock <= low_stock ORDER BY stock, name LIMIT 12"""))
@@ -215,7 +225,7 @@ def dashboard(con, user: dict) -> dict:
     woo = client.settings()
     return {
         "today": {"orders": today_row[0], "revenue": int(today_row[1])},
-        "month": month, "month_label": mlabel, "prev_month": prev,
+        "period": recent_sales, "period_label": RECENT_LABEL, "prev_period": prev,
         "daily": daily_series(con, start30, today),
         "channels": channels,
         "low_stock": low,

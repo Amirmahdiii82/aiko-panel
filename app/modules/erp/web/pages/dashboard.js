@@ -46,7 +46,7 @@ export async function render(view, params, { setTitle }) {
 }
 
 function adminHome(d) {
-  const m = d.month, pm = d.prev_month, inv = d.inventory, money = d.money, site = d.site;
+  const m = d.period, pm = d.prev_period, inv = d.inventory, money = d.money, site = d.site;
   const settle = d.partners.settlement[0];
   const alerts = [];
   if (inv.out_count) alerts.push({ ico: "ban", cls: "bad", text: `${fa(inv.out_count)} محصول ناموجود`, link: "#/erp/products?f=out" });
@@ -65,7 +65,7 @@ function adminHome(d) {
       <div class="row between">
         <div>
           <h1>امروز ${d.today.orders ? html`${fa(d.today.orders)} فروش به مبلغ <span class="num">${compact(d.today.revenue)}</span> تومان` : "هنوز فروشی ثبت نشده"}</h1>
-          <p class="muted">${d.month_label}: ${fa(m.orders)} فروش، سود خالص ${compact(m.net)} تومان</p>
+          <p class="muted">${d.period_label}: ${fa(m.orders)} فروش، سود خالص ${compact(m.net)} تومان</p>
         </div>
       </div>
       <div class="quick">
@@ -77,8 +77,8 @@ function adminHome(d) {
     </section>
 
     <div class="grid g4 erp-kpis">
-      ${moneyKpi({ label: "فروش این ماه", amount: m.revenue, color: "indigo", ico: "trending-up",
-        foot: html`${delta(m.revenue, pm.revenue)} <span>نسبت به ماه قبل، ${fa(m.orders)} سفارش</span>` })}
+      ${moneyKpi({ label: "فروش ۳۰ روز اخیر", amount: m.revenue, color: "indigo", ico: "trending-up",
+        foot: html`${delta(m.revenue, pm.revenue)} <span>نسبت به ۳۰ روز قبل، ${fa(m.orders)} سفارش</span>` })}
       ${moneyKpi({ label: "سود ناخالص", amount: m.gross, color: "orchid", ico: "sparkles",
         foot: html`<span>حاشیه سود ${pct(m.margin)}</span>` })}
       ${moneyKpi({ label: "سود خالص (بعد از هزینه‌ها)", amount: m.net, color: m.net >= 0 ? "mint" : "coral", ico: "piggy-bank",
@@ -94,9 +94,9 @@ function adminHome(d) {
         <div class="chart-box"><canvas id="daily-chart" aria-label="نمودار فروش روزانه"></canvas></div>
       </section>
       <section class="card">
-        <div class="card-head"><h2>${icon("layers")} سهم کانال‌ها</h2><span class="spacer"></span><span class="muted small">${d.month_label}</span></div>
+        <div class="card-head"><h2>${icon("layers")} سهم کانال‌ها</h2><span class="spacer"></span><span class="muted small">${d.period_label}</span></div>
         ${d.channels.length ? barList(d.channels, { label: (c) => html`${icon(CHANNEL_ICON[c.channel] || "tag", "sm")} ${c.label}`, value: (c) => c.revenue,
-          sub: (c) => `${fa(c.orders)} سفارش` }) : emptyState("layers", "این ماه فروشی نیست")}
+          sub: (c) => `${fa(c.orders)} سفارش` }) : emptyState("layers", "در ۳۰ روز اخیر فروشی نیست")}
       </section>
     </div>
 

@@ -72,13 +72,13 @@ export default {
     if (d.low_count) alerts.push({ tone: "warn", ico: "triangle-alert", text: `${fa(d.low_count)} محصول رو به اتمام`, sub: "از «خرید کالا» دوباره پرش کنید", href: "#/erp/sell?mode=buy" });
     if (site.problems) alerts.push({ tone: "bad", ico: "cloud-off", text: `${fa(site.problems)} محصول با سایت هماهنگ نمی‌شود`, href: "#/erp/site" });
     if (site.nocount) alerts.push({ tone: "info", ico: "hash", text: `${fa(site.nocount)} محصول سایت شمارش نشده`, sub: "موجودی‌شان را یک بار در انبار اصلاح کنید", href: "#/erp/site" });
-    if (d.month.unpaid) alerts.push({ tone: "info", ico: "clock", text: `${compact(d.month.unpaid)} تومان نسیه این ماه`, href: "#/erp/sales?unpaid=1" });
+    if (d.period.unpaid) alerts.push({ tone: "info", ico: "clock", text: `${compact(d.period.unpaid)} تومان نسیه ۳۰ روز اخیر`, href: "#/erp/sales?unpaid=1" });
     return {
       headline: d.today.orders ? `امروز ${fa(d.today.orders)} فروش به مبلغ ${compact(d.today.revenue)} تومان` : "امروز هنوز فروشی ثبت نشده",
       stats: [
         { label: "فروش امروز", value: compact(d.today.revenue), unit: `${fa(d.today.orders)} سفارش`, href: "#/erp/sales" },
-        { label: `فروش ${d.month_label}`, value: compact(d.month.revenue), unit: "تومان", href: "#/erp/reports" },
-        { label: "سود خالص ماه", value: compact(d.month.net), unit: "تومان", tone: d.month.net < 0 ? "bad" : "", href: "#/erp/reports" },
+        { label: `فروش ${d.period_label}`, value: compact(d.period.revenue), unit: "تومان", href: "#/erp/reports" },
+        { label: "سود خالص ۳۰ روز", value: compact(d.period.net), unit: "تومان", tone: d.period.net < 0 ? "bad" : "", href: "#/erp/reports" },
         { label: "ارزش انبار", value: compact(d.stock_value), unit: "به قیمت خرید", href: "#/erp/products" },
       ],
       alerts,

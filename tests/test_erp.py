@@ -71,7 +71,7 @@ def test_seller_sale_goes_to_their_cash_account_and_hides_costs(owner):
 def test_dashboard_and_reports(owner):
     _product(owner)
     d = owner.get("/api/erp/dashboard").json()
-    assert {"today", "month", "inventory", "recent"} <= set(d)
+    assert {"today", "period", "inventory", "recent"} <= set(d)
     assert owner.get("/api/erp/reports?period=month").status_code == 200
     assert owner.get("/api/erp/export.xlsx").status_code == 200
 
