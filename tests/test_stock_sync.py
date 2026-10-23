@@ -324,6 +324,24 @@ def test_a_hand_count_is_applied_once_to_the_panel_and_sent_to_the_site(site, tm
     assert product(10)["stock"] == 6 and site.products[10]["stock_quantity"] == 6
 
 
+def test_a_hand_count_with_costs_sets_the_unit_cost(site, tmp_path, monkeypatch, owner):
+    site.add(10, "رژ لب", 5)
+    run(stock.refresh(full=True))
+    with db.tx() as con:                                   # sold on the site before its cost was known
+        ledger.create_sale(con, {"channel": "in_person", "items": [{"product_id": product(10)["id"], "qty": 1, "unit_price": 1}]},
+                           None, quiet=True)
+    _count_file(tmp_path, monkeypatch, [(10, None, 2)])
+    import json as _json
+    plan = _json.loads(stock.COUNT_FILES[0].read_text(encoding="utf-8"))
+    plan["items"][0]["cost"] = 380_000
+    stock.COUNT_FILES[0].write_text(_json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+    report = run(stock.refresh(full=True))
+    assert report["count"]["costed"] == 1
+    assert product(10)["stock"] == 2 and product(10)["avg_cost"] == 380_000
+    with db.read() as con:
+        assert con.execute("SELECT unit_cost FROM sale_items").fetchone()[0] == 380_000
+
+
 def test_a_hand_count_for_another_shop_is_never_applied(site, tmp_path, monkeypatch):
     site.add(10, "رژ لب", 5)
     _count_file(tmp_path, monkeypatch, [(999, None, 1), (998, None, 2)], [{"name": "چیزی", "qty": 1}])

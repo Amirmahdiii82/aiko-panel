@@ -139,8 +139,8 @@ COUNT_FILES = sorted((Path(__file__).resolve().parents[1] / "data").glob("stock_
 
 
 def apply_count(con, entries: list[dict]) -> dict | None:
-    """A full hand count of the shop (data/stock_count_*.json: site product/color ids → counted number, plus items
-    only kept here), applied once: the panel takes the counted numbers and, being the one place stock is kept, sends
+    """A full hand count of the shop (data/stock_count_*.json: site product/color ids → counted number and, optionally,
+    unit cost; plus items only kept here), applied once: the panel takes the counted numbers and, being the one place stock is kept, sends
     them to the site. Only on the shop it was made for — most of its site ids must be in this catalogue — so a test or
     an empty database never gets it. A product linked as a whole to one with colors is split into its colors first."""
     result = None
@@ -153,7 +153,7 @@ def apply_count(con, entries: list[dict]) -> dict | None:
             continue
         by_key = {(e["woo_id"], e["variation_id"]): e for e in entries}
         system = {"id": None, "name": plan["label"]}
-        split = changed = same = 0
+        split = changed = same = costed = 0
         for parent in sorted({i["woo_id"] for i in plan["items"] if i["variation_id"]}):
             whole = db.one(con.execute("""SELECT id FROM products WHERE active = 1 AND woo_id = ?
                                           AND woo_variation_id IS NULL""", (parent,)))
@@ -179,6 +179,9 @@ def apply_count(con, entries: list[dict]) -> dict | None:
                                 note=plan["label"], quiet=True)
             else:
                 same += 1
+            if it.get("cost") is not None and it["cost"] != p["avg_cost"]:
+                ledger.update_product(con, p["id"], {"avg_cost": it["cost"]})      # also fills sale lines without a cost
+                costed += 1
             con.execute("UPDATE products SET woo_counted = 1, woo_state = 'pending' WHERE id = ?", (p["id"],))
         for it in plan.get("panel_only") or []:
             name = matching.normalize(it["name"])
@@ -190,14 +193,18 @@ def apply_count(con, entries: list[dict]) -> dict | None:
                 ledger.create_product(con, {"name": it["name"].strip(), "stock": it["qty"]}, None, quiet=True)
             changed += 1
         db.set_setting("stock_counts_applied", [*done, plan["label"]], con)
+        panel_only = len(plan.get("panel_only") or [])
         notify.activity(con, "stock_count", f"📋 {plan['label']} ثبت شد",
-                        f"{ledger.fa(len(plan['items']))} کالای سایت و {ledger.fa(len(plan.get('panel_only') or []))} کالای انبار: "
+                        f"{ledger.fa(len(plan['items']))} کالای سایت"
+                        + (f" و {ledger.fa(panel_only)} کالای انبار" if panel_only else "") + ": "
                         f"{ledger.fa(changed)} عدد عوض شد، {ledger.fa(same)} همان بود"
+                        + (f"، قیمت خرید {ledger.fa(costed)} کالا به‌روز شد" if costed else "")
                         + (f"، {ledger.fa(split)} محصول به رنگ‌ها تفکیک شد" if split else "")
                         + ". سایت هم همین اعداد را می‌گیرد."
                         + (f" پیدا نشد: {'، '.join(missing[:5])}" if missing else ""),
                         level="success" if not missing else "warning", link="#/erp/site", notify=True)
-        result = {"label": plan["label"], "changed": changed, "same": same, "split": split, "missing": missing}
+        result = {"label": plan["label"], "changed": changed, "same": same, "costed": costed, "split": split,
+                  "missing": missing}
     return result
 
 

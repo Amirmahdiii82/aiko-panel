@@ -31,7 +31,7 @@ def _month(owner):
                                  "items": [{"product_id": pid, "qty": 1, "unit_price": 300_000}]}, None, quiet=True)
         ledger.save_expense(con, {"date": "2026-10-05", "category": "تبلیغات", "amount": 100_000,
                                   "account_id": cards[partners[1]]}, OWNER)       # paid from a partner's own card
-    return owner.get("/api/erp/statements?period=custom&start=2026-10-01&end=2026-10-22").json()
+    return owner.get(f"/api/erp/statements?period=custom&start=2026-10-01&end={db.today()}").json()
 
 
 def amount(rows, label):
@@ -72,7 +72,7 @@ def test_cash_flow_ties_opening_to_closing(owner):
 def test_opening_stock_without_a_payment_is_one_explained_line(owner):
     with db.tx() as con:
         ledger.create_product(con, {"name": "کالای موجودی اولیه", "stock": 5, "avg_cost": 100_000}, None, quiet=True)
-    s = owner.get("/api/erp/statements?period=all").json()
+    s = owner.get(f"/api/erp/statements?period=all").json()
     right = s["balance"]["liabilities_equity"]
     assert amount(right, "موجودی اولیه و اصلاحات انبار") == 500_000
     assert amount(s["balance"]["assets"], "جمع دارایی‌ها") == amount(right, "جمع بدهی‌ها و حقوق صاحبان سرمایه")
@@ -81,7 +81,7 @@ def test_opening_stock_without_a_payment_is_one_explained_line(owner):
 def test_the_three_statements_in_excel(owner):
     import openpyxl
     _month(owner)
-    r = owner.get("/api/erp/statements.xlsx?period=custom&start=2026-10-01&end=2026-10-22")
+    r = owner.get(f"/api/erp/statements.xlsx?period=custom&start=2026-10-01&end={db.today()}")
     assert r.status_code == 200
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
     assert wb.sheetnames == ["ترازنامه", "سود و زیان", "جریان نقدی"]
