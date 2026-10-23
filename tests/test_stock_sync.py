@@ -342,6 +342,29 @@ def test_a_hand_count_with_costs_sets_the_unit_cost(site, tmp_path, monkeypatch,
         assert con.execute("SELECT unit_cost FROM sale_items").fetchone()[0] == 380_000
 
 
+def test_an_empty_panel_takes_the_shipped_count_and_the_site_follows(site):
+    """The real shipped count on an empty panel: every site item becomes a product with the counted number and cost."""
+    import json as _json
+    plan = _json.loads(stock.COUNT_FILES[-1].read_text(encoding="utf-8"))
+    for it in plan["items"]:
+        if it["variation_id"]:
+            if it["woo_id"] not in site.products:
+                site.add(it["woo_id"], it["name"].split(" — ")[0], manage=False, type_="variable")
+            site.add_color(it["woo_id"], it["variation_id"], it["name"].split(" — ")[1], 5)
+        else:
+            site.add(it["woo_id"], it["name"], 5)
+    report = run(stock.refresh(full=True))
+    assert report["count"]["missing"] == []
+    run(stock.push_pending())
+    with db.read() as con:
+        units, value = con.execute("SELECT SUM(stock), SUM(stock * avg_cost) FROM products WHERE active = 1").fetchone()
+    assert units == sum(i["qty"] for i in plan["items"]) and value == sum(i["qty"] * i["cost"] for i in plan["items"])
+    for it in plan["items"]:
+        on_site = (site.variations[it["woo_id"]][it["variation_id"]] if it["variation_id"]
+                   else site.products[it["woo_id"]])["stock_quantity"]
+        assert on_site == it["qty"], it["name"]
+
+
 def test_a_hand_count_for_another_shop_is_never_applied(site, tmp_path, monkeypatch):
     site.add(10, "رژ لب", 5)
     _count_file(tmp_path, monkeypatch, [(999, None, 1), (998, None, 2)], [{"name": "چیزی", "qty": 1}])
