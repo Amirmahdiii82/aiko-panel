@@ -92,6 +92,7 @@ function page(st, cat) {
 
 function statusCard(st) {
   const s = st.settings, c = st.counts || {};
+  const countStates = st.stock_count || [];
   const linked = c.linked || 0;
   const attention = (c.errors || 0) + (c.gone || 0) + (c.nocount || 0) + (c.whole || 0);
   const headline = c.pending ? `در حال ارسال ${fa(c.pending)} محصول به سایت…`
@@ -108,6 +109,7 @@ function statusCard(st) {
           <p class="small muted mt8">${fa(c.ok || 0)} از ${fa(linked)} محصول وصل‌شده هماهنگ${c.checked_at ? ` — آخرین بررسی ${when(c.checked_at)}` : ""}${s.webhooks_at ? "، سفارش‌ها فوری می‌آیند" : ""}</p>
           ${attention ? html`<p class="small muted mt8">${fa(attention)} مورد در وضعیت خطا، حذف‌شده از سایت، بدون شمارش سایت یا نیازمند تفکیک رنگ است.</p>` : ""}
           ${c.unlinked ? html`<p class="small muted mt8">${fa(c.unlinked)} محصول فعال در پنل اتصال سایت ندارد؛ این عدد با ناموجودی انبار فرق دارد. <a href="#/erp/products?f=unlinked">دیدن محصولات بدون اتصال</a></p>` : ""}
+          ${countStates.map((x) => html`<p class="small muted mt8">شمارش مرجع «${x.label}» (${fa(x.products)} ردیف، ${fa(x.units)} عدد): ${x.applied ? "در پنل اعمال شده" : "هنوز اعمال نشده؛ بعد از بررسی کامل سایت و تطبیق شناسه‌ها اعمال می‌شود"}.</p>`)}
         </div>
       </div>
       <button class="btn soft sm" data-act="sync-now" ${st.busy ? "disabled" : ""}>${icon("refresh-cw", "sm")} همگام‌سازی همین الان</button>

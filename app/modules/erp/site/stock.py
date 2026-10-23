@@ -213,6 +213,18 @@ def apply_count(con, entries: list[dict]) -> dict | None:
     return result
 
 
+def count_status(con) -> list[dict]:
+    """Expose the shipped hand-count state so an owner can tell whether its one-time import ran."""
+    applied = set(db.get_setting("stock_counts_applied", [], con) or [])
+    status = []
+    for path in COUNT_FILES:
+        plan = json.loads(path.read_text(encoding="utf-8"))
+        status.append({"label": plan["label"], "applied": plan["label"] in applied,
+                       "products": len(plan.get("items") or []),
+                       "units": sum(int(item.get("qty") or 0) for item in plan.get("items") or [])})
+    return status
+
+
 async def refresh(*, full: bool = False, parents=None, changed_since: str | None = None) -> dict:
     """Read the site (all products, the given ones, or those changed since a moment) and compare. Website orders are
     read just before and just after, so a sale made meanwhile is already here when numbers are compared.

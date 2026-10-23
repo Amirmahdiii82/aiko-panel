@@ -625,11 +625,12 @@ def woo_status(request: Request, user=Admin):
                FROM sales WHERE status = 'done'"""))
         logs = db.rows(con.execute("SELECT * FROM woo_log ORDER BY id DESC LIMIT 40"))
         review = history.review(con)
+        count_state = stock.count_status(con)
     catalog = db.get_setting("woo_catalog", {}) or {}
     return {"settings": _woo_public(s), "configured": client.configured(s), "counts": counts, "sales": sales, "log": logs,
             "webhook_url": _webhook_url(request), "catalog_fetched_at": catalog.get("fetched_at"),
             "catalog_source": catalog.get("source"), "full_sync": history.state(), "review": review,
-            "missing_codes": len(stock.missing_codes()),
+            "missing_codes": len(stock.missing_codes()), "stock_count": count_state,
             "busy": client.sync_lock().locked()}
 
 
