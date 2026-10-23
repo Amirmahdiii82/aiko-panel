@@ -49,7 +49,7 @@ function adminHome(d) {
   const m = d.period, pm = d.prev_period, inv = d.inventory, money = d.money, site = d.site;
   const settle = d.partners.settlement[0];
   const alerts = [];
-  if (inv.out_count) alerts.push({ ico: "ban", cls: "bad", text: `${fa(inv.out_count)} محصول ناموجود`, link: "#/erp/products?f=out" });
+  if (inv.out_count) alerts.push({ ico: "ban", cls: "bad", text: `${fa(inv.out_count)} محصول ناموجود در انبار`, link: "#/erp/products?f=out" });
   if (inv.low_count) alerts.push({ ico: "triangle-alert", cls: "warn", text: `${fa(inv.low_count)} محصول رو به اتمام`, link: "#/erp/products?f=low" });
   if (site.errors) alerts.push({ ico: "cloud-off", cls: "bad", text: `${fa(site.errors)} خطای همگام‌سازی سایت`, link: "#/erp/site" });
   if (!site.configured) alerts.push({ ico: "globe", cls: "info", text: "سایت هنوز وصل نشده — موجودی سایت خودکار به‌روز نمی‌شود", link: "#/erp/site" });

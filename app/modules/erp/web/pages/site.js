@@ -92,13 +92,22 @@ function page(st, cat) {
 
 function statusCard(st) {
   const s = st.settings, c = st.counts || {};
+  const linked = c.linked || 0;
+  const attention = (c.errors || 0) + (c.gone || 0) + (c.nocount || 0) + (c.whole || 0);
+  const headline = c.pending ? `در حال ارسال ${fa(c.pending)} محصول به سایت…`
+    : !linked ? "هنوز محصولی به سایت وصل نشده"
+    : attention ? `${fa(attention)} محصول نیاز به بررسی دارد`
+    : c.ok === linked ? "موجودی محصولات وصل‌شده هماهنگ است"
+    : "وضعیت اتصال سایت در حال بررسی است";
   return html`<section class="card sync-status">
     <div class="row between" style="align-items:flex-start">
       <div class="sync-head" style="flex:1 1 260px">
         <span class="sync-orb">${icon("refresh-cw")}</span>
         <div>
-          <h2>${c.pending ? `در حال ارسال ${fa(c.pending)} محصول به سایت…` : "سایت با انبار پنل هماهنگ است"}</h2>
-          <p class="small muted mt8">${fa(c.ok || 0)} محصول هماهنگ${c.checked_at ? ` — آخرین بررسی ${when(c.checked_at)}` : ""}${s.webhooks_at ? "، سفارش‌ها فوری می‌آیند" : ""}</p>
+          <h2>${headline}</h2>
+          <p class="small muted mt8">${fa(c.ok || 0)} از ${fa(linked)} محصول وصل‌شده هماهنگ${c.checked_at ? ` — آخرین بررسی ${when(c.checked_at)}` : ""}${s.webhooks_at ? "، سفارش‌ها فوری می‌آیند" : ""}</p>
+          ${attention ? html`<p class="small muted mt8">${fa(attention)} مورد در وضعیت خطا، حذف‌شده از سایت، بدون شمارش سایت یا نیازمند تفکیک رنگ است.</p>` : ""}
+          ${c.unlinked ? html`<p class="small muted mt8">${fa(c.unlinked)} محصول فعال در پنل اتصال سایت ندارد؛ این عدد با ناموجودی انبار فرق دارد. <a href="#/erp/products?f=unlinked">دیدن محصولات بدون اتصال</a></p>` : ""}
         </div>
       </div>
       <button class="btn soft sm" data-act="sync-now" ${st.busy ? "disabled" : ""}>${icon("refresh-cw", "sm")} همگام‌سازی همین الان</button>

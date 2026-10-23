@@ -97,7 +97,7 @@ function body(r) {
           <div class="inset"><div class="small muted">ارزش فروش</div><div class="bold num">${compact(inv.retail_value)}</div></div>
           <div class="inset"><div class="small muted">سود بالقوه</div><div class="bold num ok-ink">${compact(inv.potential_profit)}</div></div>
         </div>
-        <p class="small muted mt12">${fa(inv.units)} عدد در ${fa(inv.products)} محصول، ${fa(inv.out_count)} ناموجود، ${fa(inv.low_count)} رو به اتمام</p>
+        <p class="small muted mt12">${fa(inv.units)} عدد در ${fa(inv.products)} محصول، ${fa(inv.out_count)} ناموجود در انبار، ${fa(inv.low_count)} رو به اتمام</p>
         <h3 class="mt16">${icon("clock", "sm")} بدون فروش در ۴۵ روز اخیر</h3>
         ${inv.slow.length ? html`<div class="list mt8">${inv.slow.map((p) => html`<a class="list-item clickable" href="#/erp/products/${p.id}" style="text-decoration:none">
             ${thumb(p, "sm")}<span class="grow small">${p.name}<br><span class="muted tiny">${fa(p.stock)} عدد، آخرین فروش: ${p.last_sale ? jdate(p.last_sale) : "هیچ‌وقت"}</span></span>

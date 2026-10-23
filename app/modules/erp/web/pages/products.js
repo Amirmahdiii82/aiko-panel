@@ -6,8 +6,8 @@ import { erp, isAdmin, refreshMe, stockBadge, WOO_STATE, wooBadge } from "../erp
 const FILTERS = [
   { key: "all", label: "همه" },
   { key: "low", label: "رو به اتمام", test: (p) => p.stock > 0 && p.stock <= p.low_stock },
-  { key: "out", label: "ناموجود", test: (p) => p.stock <= 0 },
-  { key: "unlinked", label: "وصل نشده به سایت", test: (p) => !p.woo_id, admin: true },
+  { key: "out", label: "ناموجود در انبار", test: (p) => p.stock <= 0 },
+  { key: "unlinked", label: "اتصال سایت ندارد", test: (p) => !p.woo_id, admin: true },
   { key: "error", label: "خطای سایت", test: (p) => p.woo_state === "error", admin: true },
   { key: "nocost", label: "بدون قیمت خرید", test: (p) => !p.avg_cost && (p.stock > 0 || p.sold_total > 0), admin: true },
   { key: "archived", label: "بایگانی", admin: true },

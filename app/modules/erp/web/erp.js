@@ -32,7 +32,7 @@ export function accountChoice(name, selected, { kinds = null } = {}) {
 export function stockBadge(p) {
   // the site sells it without counting: unknown here until someone counts it (site page → شمارش برای سایت)
   if (p.stock <= 0 && p.woo_state === "nocount" && p.woo_in_stock) return html`<span class="badge warn" title="در سایت موجود است ولی تعدادش شمرده نشده">${icon("hash")}شمارش نشده</span>`;
-  if (p.stock <= 0) return html`<span class="badge bad">${icon("ban")}ناموجود${p.stock < 0 ? ` (${fa(p.stock)})` : ""}</span>`;
+  if (p.stock <= 0) return html`<span class="badge bad" title="موجودی ثبت‌شده در انبار پنل صفر یا منفی است">${icon("ban")}ناموجود در انبار${p.stock < 0 ? ` (${fa(p.stock)})` : ""}</span>`;
   if (p.stock <= p.low_stock) return html`<span class="badge warn">${fa(p.stock)} عدد</span>`;
   return html`<span class="badge ok">${fa(p.stock)} عدد</span>`;
 }
@@ -46,9 +46,9 @@ export const WOO_STATE = {
   error: { cls: "bad", ico: "cloud-off", label: "خطا", tip: "" },
 };
 export function wooBadge(p) {
-  if (!p.woo_id) return html`<span class="badge" title="به محصول سایت وصل نیست">${icon("unlink")}وصل نیست</span>`;
+  if (!p.woo_id) return html`<span class="badge" title="برای این محصول اتصال به ووکامرس ثبت نشده">${icon("unlink")}اتصال سایت ندارد</span>`;
   const st = WOO_STATE[p.woo_state];
-  if (!st) return html`<span class="badge primary" title="وصل است؛ در بررسی بعدی با سایت مقایسه می‌شود">${icon("link")}وصل</span>`;
+  if (!st) return html`<span class="badge primary" title="اتصال ثبت شده؛ هنوز نتیجه بررسی موجودی ثبت نشده">${icon("link")}وصل، بررسی‌نشده</span>`;
   return html`<span class="badge ${st.cls}" title="${p.woo_state === "error" ? p.woo_error || "" : st.tip}">${icon(st.ico)}${st.label}</span>`;
 }
 

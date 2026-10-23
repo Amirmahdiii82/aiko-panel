@@ -610,6 +610,7 @@ def woo_status(request: Request, user=Admin):
     with db.read() as con:
         counts = db.one(con.execute(
             """SELECT COUNT(*) AS products, SUM(CASE WHEN woo_id IS NOT NULL THEN 1 ELSE 0 END) AS linked,
+                      SUM(CASE WHEN active = 1 AND woo_id IS NULL THEN 1 ELSE 0 END) AS unlinked,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'ok' THEN 1 ELSE 0 END) AS ok,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'pending' THEN 1 ELSE 0 END) AS pending,
                       SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'error' THEN 1 ELSE 0 END) AS errors,
