@@ -26,7 +26,7 @@ python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || { 
 echo "==> user and folders"
 id aiko &>/dev/null || useradd --system --home "$ROOT" --shell /usr/sbin/nologin aiko
 mkdir -p "$ROOT" "$ROOT/data" /etc/aiko-panel
-rsync -a --exclude .git --exclude .venv --exclude data --exclude .env "$SRC/" "$ROOT/"
+rsync -a --exclude /.git --exclude /.venv --exclude /data --exclude /.env "$SRC/" "$ROOT/"
 
 echo "==> python environment"
 [[ -x $ROOT/.venv/bin/python ]] || python3 -m venv "$ROOT/.venv"

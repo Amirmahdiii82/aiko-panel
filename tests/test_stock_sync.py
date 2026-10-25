@@ -385,3 +385,17 @@ def test_a_hand_count_for_another_shop_is_never_applied(site, tmp_path, monkeypa
     _count_file(tmp_path, monkeypatch, [(999, None, 1), (998, None, 2)], [{"name": "چیزی", "qty": 1}])
     report = run(stock.refresh(full=True))
     assert report["count"] is None and product(10)["stock"] == 5
+
+
+def test_the_release_carries_the_hand_counts():
+    """deploy.sh keeps the server's own data/ folder out of each release. The count files must not live in a folder
+    with that name (an unanchored exclude skipped them, so the count never reached the server), and the excludes must
+    only ever match the top-level folders."""
+    import subprocess
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    assert stock.COUNT_FILES, "no shipped hand count found"
+    tracked = subprocess.run(["git", "ls-files", "app"], cwd=root, capture_output=True, text=True, check=True).stdout.split()
+    assert not [f for f in tracked if "data" in Path(f).parts], "a folder named data inside app/ is dropped by old deploys"
+    keep = re.search(r"^KEEP=\((.*)\)$", (root / "deploy/deploy.sh").read_text(encoding="utf-8"), re.M).group(1)
+    assert all(p.startswith("/") for p in re.findall(r"--exclude (\S+)", keep)), keep

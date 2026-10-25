@@ -14,7 +14,8 @@ PORT=$(grep -E '^PORT=' "$ROOT/.env" 2>/dev/null | cut -d= -f2 || true)
 PORT=${PORT:-8020}
 PREV=$ROOT/.previous
 SNAP=$ROOT/data/backups/predeploy-$(date +%Y%m%d-%H%M%S)-${COMMIT:0:7}
-KEEP=(--exclude .env --exclude data/ --exclude .venv/ --exclude .previous/ --exclude .deployed)
+# anchored with a leading "/": a bare "data/" would also skip every folder named data inside the app
+KEEP=(--exclude /.env --exclude /data/ --exclude /.venv/ --exclude /.previous/ --exclude /.deployed)
 PY=$ROOT/.venv/bin/python
 RUN_AS=${AIKO_USER:-aiko}
 # app commands run as the service user so files in data/ keep the right owner

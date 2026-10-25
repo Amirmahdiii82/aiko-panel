@@ -7,3 +7,4 @@ __pycache__/
 .previous/
 .pytest_cache/
 .DS_Store
+aiko-backup-*/

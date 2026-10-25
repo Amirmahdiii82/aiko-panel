@@ -4,7 +4,7 @@
 * Website orders come here as sales, so the panel's number already includes them.
 * Product details live on the site: a new product or color, a name, image or price change made there comes here.
 * Stock typed by hand in the WordPress admin is set back to the panel's number every few minutes, and reported.
-* A full hand count (data/stock_count_*.json) is applied once, at the first full comparison after it ships; nothing is
+* A full hand count (counts/stock_count_*.json) is applied once, at the first full comparison after it ships; nothing is
   sent to the site before a full comparison has run since the app started, so old numbers never go out first.
 * Items the site sells without counting are left alone until their stock is set here (a stock adjustment or a hand
   count); a product linked as a whole to a site product with colors is not sent until it is split.
@@ -135,11 +135,12 @@ def reconcile(con, entries: list[dict], *, parents=None, full: bool = False) -> 
 
 # ---------------------------------------------------------------- a hand count shipped with the panel
 
-COUNT_FILES = sorted((Path(__file__).resolve().parents[1] / "data").glob("stock_count_*.json"))
+# Not in a folder named "data": deploys keep the server's data/ folder out of the release, at any depth in old scripts
+COUNT_FILES = sorted((Path(__file__).resolve().parents[1] / "counts").glob("stock_count_*.json"))
 
 
 def apply_count(con, entries: list[dict]) -> dict | None:
-    """A full hand count of the shop (data/stock_count_*.json: site product/color ids → counted number and, optionally,
+    """A full hand count of the shop (counts/stock_count_*.json: site product/color ids → counted number and, optionally,
     unit cost; plus items only kept here; with "tidy", products not on the site are merged or retired first —
     see matching.tidy), applied once: the panel takes the counted numbers and, being the one place stock is kept, sends
     them to the site. Only on the shop it was made for — most of its site ids must be in this catalogue — so a test or
@@ -214,14 +215,17 @@ def apply_count(con, entries: list[dict]) -> dict | None:
 
 
 def count_status(con) -> list[dict]:
-    """Expose the shipped hand-count state so an owner can tell whether its one-time import ran."""
+    """The shipped hand counts and whether each has been applied; one still waiting says how much of it the last
+    catalogue read recognised (it applies at the next full comparison once 80% of its site ids are there)."""
     applied = set(db.get_setting("stock_counts_applied", [], con) or [])
+    keys = {(e["woo_id"], e["variation_id"]) for e in (db.get_setting("woo_catalog", {}, con) or {}).get("items") or []}
     status = []
     for path in COUNT_FILES:
         plan = json.loads(path.read_text(encoding="utf-8"))
-        status.append({"label": plan["label"], "applied": plan["label"] in applied,
-                       "products": len(plan.get("items") or []),
-                       "units": sum(int(item.get("qty") or 0) for item in plan.get("items") or [])})
+        items = plan.get("items") or []
+        status.append({"label": plan["label"], "applied": plan["label"] in applied, "products": len(items),
+                       "units": sum(int(i.get("qty") or 0) for i in items),
+                       "recognised": sum((i["woo_id"], i["variation_id"]) in keys for i in items)})
     return status
 
 
