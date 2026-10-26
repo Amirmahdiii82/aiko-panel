@@ -150,17 +150,3 @@ async def test_proxy() -> dict:
             return exc.__class__.__name__
     results = await asyncio.gather(*(probe(u) for u in targets.values()))
     return {"proxy": bool(proxy_url()), **dict(zip(targets, results))}
-
-
-# ---------------------------------------------------------------- one-time move of keys that modules used to keep
-def adopt(key: str, values: dict) -> bool:
-    """Called by a module at startup with credentials it stored before they moved here.
-    Only fills fields that are still empty in core, so a value set in Settings always wins."""
-    values = {k: v for k, v in values.items() if v not in (None, "")}
-    if not values:
-        return False
-    current = _get(key)
-    missing = {k: v for k, v in values.items() if not current.get(k)}
-    if missing:
-        _merge(key, missing)
-    return bool(missing)

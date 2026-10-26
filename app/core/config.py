@@ -62,7 +62,7 @@ BACKUP_DIR = Path(env("BACKUP_DIR", str(DATA_DIR / "backups"))).resolve()
 BACKUP_KEEP_DAYS = env_int("BACKUP_KEEP_DAYS", 30)
 BACKUP_TIME = env("BACKUP_TIME", "03:15")  # daily, Tehran time; empty = off
 
-# Comma separated module ids in sidebar order. A module that is not listed is not imported at all.
+# Comma separated module ids, in the order of the top bar. A module that is not listed is not imported at all.
 MODULES = [m.strip() for m in env("MODULES", "erp,pricing,media").split(",") if m.strip()]
 
 TIMEZONE = env("TIMEZONE", "Asia/Tehran")

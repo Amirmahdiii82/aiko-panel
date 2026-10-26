@@ -1,44 +1,54 @@
-// Settings (owners only). What every part of the app shares — site connection, proxy, notification bot, backups,
-// OpenRouter — comes first, with the same checklist and forms as the home page (setup.js). Then system health and the
-// settings of each module (rendered here from the module's own settings page).
-import { $, api, fa, html, icon, jdate, raw, state, toast } from "../kit.js";
+// Settings: the one place for every setting in the app. A section list on the start side, the section on the other.
+// Owners get the shared sections (setup checklist, team, the site and other connections, the bot, Drive, backups,
+// system health); everyone gets a section for each module they manage (the module's `settings` page rendered here —
+// modules have no settings screen of their own). Forms come from setup.js, the same ones the setup checklist opens.
+import { $, api, fa, html, icon, isOwner, jdate, moduleSettingsAllowed, raw, state, toast } from "../kit.js";
 import { renderForm, setupCard } from "../setup.js";
 
-const CORE_TABS = [
+const SHARED = [
+  { group: "عمومی" },
   { key: "setup", label: "راه‌اندازی", ico: "circle-check" },
+  { key: "team", label: "تیم و دسترسی‌ها", ico: "users" },
+  { group: "اتصال‌ها" },
   { key: "connections", label: "سایت و اتصال‌ها", ico: "plug" },
-  { key: "notify", label: "اعلان‌ها", ico: "bot" },
-  { key: "backup", label: "پشتیبان", ico: "database" },
+  { key: "notify", label: "ربات و اعلان‌ها", ico: "bot" },
   { key: "drive", label: "رسیدها در گوگل درایو", ico: "folder" },
-  { key: "system", label: "سیستم", ico: "server" },
 ];
-// module tabs: which modules have their own settings, and the label shown here
-const MODULE_TABS = { erp: { label: "فروشگاه و حسابداری", ico: "store" }, media: { label: "استودیو", ico: "clapperboard" } };
+const SYSTEM = [
+  { group: "سیستم" },
+  { key: "backup", label: "پشتیبان", ico: "database" },
+  { key: "system", label: "وضعیت سیستم", ico: "server" },
+];
 const size = (b) => (b > 1048576 ? `${fa((b / 1048576).toFixed(1))} مگابایت` : `${fa(Math.max(1, Math.round(b / 1024)))} کیلوبایت`);
 
-function tabs() {
-  const mods = Object.entries(MODULE_TABS).filter(([id]) => state.registry?.[id]?.def?.pages?.settings)
-    .map(([id, t]) => ({ key: id, ...t, module: true }));
-  return [...CORE_TABS, ...mods];
+/** The sections this person may open, in menu order. */
+function sections() {
+  const mods = state.me.modules.map((m) => state.registry[m.id]).filter(moduleSettingsAllowed)
+    .map((m) => ({ key: m.info.id, label: m.info.name, ico: m.info.icon, module: true }));
+  return [...(isOwner() ? SHARED : []), ...(mods.length ? [{ group: "بخش‌ها" }, ...mods] : []), ...(isOwner() ? SYSTEM : [])];
 }
 
 export async function render(view, params, { setTitle }) {
-  setTitle("تنظیمات", "تنظیمات مشترک همه بخش‌ها، و تنظیمات هر بخش");
   let tab = params[0] || "setup";
   let sub = params.slice(1);
   let cleanup = null;
   const draw = async () => {
     cleanup?.();
     cleanup = null;
-    const all = tabs();
-    if (!all.some((t) => t.key === tab)) tab = "setup";
-    const chip = (t) => html`<a class="chip ${t.key === tab ? "on" : ""}" href="#/settings/${t.key}">${icon(t.ico, "sm")}${t.label}</a>`;
-    view.innerHTML = String(html`<div class="stack">
-      <div class="chips scroll">${all.filter((t) => !t.module).map(chip)}
-        ${all.some((t) => t.module) ? html`<span class="small muted" style="align-self:center;padding:0 6px">بخش‌ها:</span>${all.filter((t) => t.module).map(chip)}` : ""}</div>
-      <div id="tab"><div class="skeleton" style="height:300px"></div></div></div>`);
+    const all = sections();
+    if (!all.some((t) => t.key === tab)) tab = all.find((t) => !t.group)?.key;
+    if (!tab) { location.hash = "#/"; return; }
+    const cur = all.find((t) => t.key === tab);
+    setTitle("تنظیمات", cur.label);
+    view.innerHTML = String(html`<div class="settings">
+      <aside class="card settings-nav"><nav class="nav" aria-label="بخش‌های تنظیمات">${all.map((t) => t.group
+        ? html`<div class="nav-label">${t.group}</div>`
+        : html`<a href="#/settings/${t.key}" class="${t.key === tab ? "on" : ""}">${icon(t.ico)}<span>${t.label}</span></a>`)}</nav></aside>
+      <div class="settings-body" id="tab"><div class="skeleton" style="height:300px"></div></div></div>`);
+    view.querySelector(".settings-nav a.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
     const el = $("#tab", view);
     if (tab === "setup") await setupCard(el);
+    else if (tab === "team") cleanup = await embed(el, () => import("./team.js"), sub);
     else if (tab === "connections") connectionsTab(el);
     else if (tab === "notify") await notifyTab(el);
     else if (tab === "backup") await backupTab(el);
@@ -57,13 +67,18 @@ const formCard = (key, ico, title) => html`<section class="card"><div class="car
   <div data-form="${key}"><div class="skeleton" style="height:180px"></div></div></section>`;
 const fillForms = (el) => el.querySelectorAll("[data-form]").forEach((box) => renderForm(box.dataset.form, box));
 
-/** A module's own settings page, shown inside the main settings (its tab links stay under #/settings/<id>). */
+/** A page rendered inside a settings section: it keeps its own links under #/settings/<section>. */
+async function embed(el, load, params, extra = {}) {
+  const page = await load();
+  const result = await page.render(el, params, { setTitle: () => {}, embedded: true, ...extra });
+  return typeof result === "function" ? result : result?.cleanup || null;
+}
+
+/** A module's settings page (its `settings` in index.js; it is only ever shown here). */
 async function moduleTab(el, id, params) {
   const m = state.registry[id];
   if (!m.entered) { await m.def.enter?.(); m.entered = true; }
-  const page = await m.def.pages.settings();
-  const result = await page.render(el, params, { setTitle: () => {}, base: `#/settings/${id}`, embedded: true, module: id });
-  return typeof result === "function" ? result : result?.cleanup || null;
+  return embed(el, m.def.settings, params, { base: `#/settings/${id}`, module: id });
 }
 
 function connectionsTab(el) {

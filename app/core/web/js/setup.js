@@ -1,23 +1,24 @@
 // Shared setup (owners): everything the whole app shares, as one checklist with one small form per item.
-// The home page shows the checklist; each row opens its form in a sheet, right there. The Settings page
-// shows the same forms, so there is exactly one place in the code (and one way for the owner) to set each thing.
+// Settings → راه‌اندازی shows the checklist (each row opens its form in a sheet) and the other Settings sections show
+// the same forms inline, so there is exactly one place in the code (and one way for the owner) to set each thing.
+// Home only lists what is missing and links here.
 import { $, api, delegate, fa, html, icon, jdate, raw, sheet, timeOf, toast } from "./kit.js";
 
 const when = (ts) => (ts ? `${jdate(ts.slice(0, 10), { year: false })} ساعت ${timeOf(ts)}` : "");
 const digits = (v) => String(v || "").replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
 
 export const ITEMS = [
-  { key: "woo", ico: "globe", title: "سایت (ووکامرس)", need: "برای موجودی، سفارش‌ها و فروش‌های سایت و قیمت رقبا",
+  { key: "woo", section: "connections", ico: "globe", title: "سایت (ووکامرس)", need: "برای موجودی، سفارش‌ها و فروش‌های سایت و قیمت رقبا",
     done: (s) => `وصل — ${s.woo.url.replace(/^https?:\/\//, "")}` },
-  { key: "proxy", ico: "shield", title: "پروکسی خروجی", need: "لازم برای تلگرام و OpenRouter (از ایران فیلترند)",
+  { key: "proxy", section: "connections", ico: "shield", title: "پروکسی خروجی", need: "لازم برای تلگرام و OpenRouter (از ایران فیلترند)",
     done: () => "تلگرام و OpenRouter از این مسیر می‌روند" },
-  { key: "bot", ico: "bot", title: "ربات اعلان‌ها", need: "پیام فوری برای فروش، تمام شدن موجودی و…",
+  { key: "bot", section: "notify", ico: "bot", title: "ربات اعلان‌ها", need: "پیام فوری برای فروش، تمام شدن موجودی و…",
     done: (s) => `${s.bot.bot === "telegram" ? "تلگرام" : "بله"} — پیام‌ها به ${fa(s.bot.chat_ids.split(",").filter(Boolean).length)} چت می‌رود` },
-  { key: "backup", ico: "database", title: "پشتیبان در کانال تلگرام", need: "هر ساعت یک نسخه از همه داده‌ها بیرون از سرور",
+  { key: "backup", section: "backup", ico: "database", title: "پشتیبان در کانال تلگرام", need: "هر ساعت یک نسخه از همه داده‌ها بیرون از سرور",
     done: (s) => (s.backup.last_at ? `آخرین ارسال ${when(s.backup.last_at)}` : `روشن — هر ${fa(s.backup.hours)} ساعت`) },
-  { key: "drive", ico: "folder", title: "رسیدها در گوگل درایو", optional: true, need: "رسید خریدها، فروش‌ها، هزینه‌ها و فاکتور سفارش‌های سایت، مرتب در درایو",
+  { key: "drive", section: "drive", ico: "folder", title: "رسیدها در گوگل درایو", optional: true, need: "رسید خریدها، فروش‌ها، هزینه‌ها و فاکتور سفارش‌های سایت، مرتب در درایو",
     done: (s) => `${s.drive.email} — ${fa(s.drive.usage.files)} فایل` },
-  { key: "openrouter", ico: "key-round", title: "OpenRouter (استودیو محتوا)", optional: true, need: "فقط برای ساخت تصویر و ویدیو",
+  { key: "openrouter", section: "connections", ico: "key-round", title: "OpenRouter (استودیو محتوا)", optional: true, need: "فقط برای ساخت تصویر و ویدیو",
     done: (s) => `کلید ذخیره شده ${s.openrouter.key_hint}` },
 ];
 
@@ -50,15 +51,14 @@ export async function setupCard(el, { compact = false } = {}) {
   el.innerHTML = String(html`<section class="card">
     <div class="card-head"><h2>${icon("settings")} راه‌اندازی و وضعیت</h2>
       <span class="badge ${allOk ? "ok" : "warn"}">${allOk ? html`${icon("check")}همه آماده` : `${fa(ready)} از ${fa(required.length)} آماده`}</span>
-      <span class="spacer"></span><a class="btn xs ghost" href="#/settings">همه تنظیمات ${icon("chevron-left", "sm")}</a>
       <p>تنظیماتی که همه بخش‌ها با هم استفاده می‌کنند. هر کدام را با یک دکمه همین‌جا تنظیم کنید.</p></div>
     ${compact && allOk ? html`<details><summary class="small muted" style="cursor:pointer">نمایش جزئیات</summary>${rows}</details>` : rows}
   </section>`);
   delegate(el, "click", "[data-setup]", (e, b) => openSetup(b.dataset.setup, () => setupCard(el, { compact })));
 }
 
-/** One item's form in a sheet. */
-export function openSetup(key, onDone) {
+/** One item's form in a sheet (from the checklist). */
+function openSetup(key, onDone) {
   const it = ITEMS.find((i) => i.key === key);
   const s = sheet({ title: it.title, body: '<div class="skeleton" style="height:220px"></div>' });
   const body = s.root.querySelector(".sheet-body");

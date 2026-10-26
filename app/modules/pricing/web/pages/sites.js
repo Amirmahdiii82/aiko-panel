@@ -8,17 +8,18 @@ const STATUS = {
   failed: html`<span class="badge bad">✕ خطا</span>`, running: html`<span class="badge info">در حال اجرا</span>`,
   skipped: html`<span class="badge warn" title="بعد از مسدود شدن، یک دور استراحت می‌کند">⏸ استراحت</span>`,
 };
-const TRIGGER = { schedule: "زمان‌بندی", manual: "دستی", cli: "خط فرمان", startup: "شروع برنامه" };
+const TRIGGER = { schedule: "زمان‌بندی", manual: "دستی", cli: "خط فرمان", startup: "شروع برنامه", resume: "ادامه بعد از ری‌استارت" };
 
 export async function render(view, params, { setTitle }) {
-  setTitle("رقبا و اجراها", "کدام سایت‌ها خوانده و در محاسبات شمرده شوند");
+  setTitle("رقبا", "کدام سایت‌ها خوانده و در محاسبات شمرده شوند");
   const draw = async () => {
     const [meta, sum, crawls] = await Promise.all([refreshMeta(), api("/api/pricing/summary"), api("/api/pricing/crawls?limit=15")]);
     const h2h = Object.fromEntries(sum.head_to_head.map((x) => [x.site, x]));
     const edit = canEdit();
     view.innerHTML = String(html`<div class="stack pricing">
       <div class="callout">${icon("info")}<div>«در محاسبات» را برای سایت‌هایی خاموش کنید که نمی‌خواهید مبنای مقایسه باشند (مثلاً فروشنده‌های متفرقه باسلام).
-        ${meta.schedule.length ? `بروزرسانی خودکار هر روز ساعت ${meta.schedule.map(fa).join(" و ")} (به وقت تهران).` : "بروزرسانی خودکار خاموش است؛ قیمت‌ها فقط با دکمه «بروزرسانی» تازه می‌شوند (CRAWL_TIMES در تنظیمات سرور)."}</div></div>
+        ${meta.schedule.length ? `بروزرسانی خودکار هر روز ساعت ${meta.schedule.map(fa).join(" و ")} (به وقت تهران).` : "بروزرسانی خودکار خاموش است؛ قیمت‌ها فقط با دکمه «بروزرسانی» تازه می‌شوند."}
+        <a href="#/settings/pricing">تغییر زمان‌بندی</a></div></div>
       <section class="card"><div class="table-wrap"><table class="t">
         <thead><tr><th>سایت</th><th>خواندن قیمت</th><th title="اگر خاموش باشد قیمت‌ها نمایش داده می‌شوند ولی در شاخص، رتبه و پیشنهادها حساب نمی‌شوند">در محاسبات</th>
           <th>آخرین اجرا</th><th class="n">محصول مشترک</th><th class="n">ارزان‌تر از شما</th><th></th></tr></thead>

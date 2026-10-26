@@ -1,41 +1,49 @@
-// App shell: login, module rail + navigation panel, routing, live updates and the notification bell.
+// App shell: login, the top bar (sections), the tool dock, page tabs, routing, live updates and notifications.
 //
-// Routes:  #/                    unified home            (core)
-//          #/activity|team|settings|profile             (core pages)
+// Layout (desktop): top bar = brand · sections (home + one per module) · bell and account; a dark dock on the start
+// edge = search, activity, settings, theme; under the page title, the current section's pages as tabs.
+// Phones: sections move to a bottom bar (with the section's main action in the middle), the dock to the account menu.
+//
+// Routes:  #/                    home                    (core)
+//          #/activity|settings/<section>|profile         (core pages; settings holds every setting, incl. team)
 //          #/<module>/<page>/<params...>?query          (a module page, e.g. #/erp/sales/12)
 //
 // Each module ships /m/<id>/index.js whose default export describes it to the shell:
-//   { id, nav(role), mobile(role), pages: { "": () => import(...) }, allowed(role, page), enter(), action(role),
-//     quick(role), home(data, role), css: [] }
-import { $, api, avatar, closeAllSheets, delegate, emit, emptyState, esc, feedItem, html, icon, isOwner, on, sheet, state, toast } from "./kit.js";
+//   { id, nav(role), pages: { "": () => import(...) }, settings?: () => import(...), allowed(role, page), enter(),
+//     action(role), quick(role), glance(data, role), css: [] }
+// A module's settings page is never routed on its own: it is a section of Settings (#/settings/<id>).
+import { $, api, avatar, closeAllSheets, delegate, emit, emptyState, esc, feedItem, html, icon, isDark, isOwner, isPhone,
+  moduleSettingsAllowed, on, popover, reducedMotion, sheet, state, toast, toggleTheme } from "./kit.js";
 
 const CORE_PAGES = {
   "": () => import("./pages/home.js"),
   activity: () => import("./pages/activity.js"),
-  team: () => import("./pages/team.js"),
   settings: () => import("./pages/settings.js"),
   profile: () => import("./pages/profile.js"),
 };
-const OWNER_ONLY = new Set(["team", "settings"]);
-const homeNav = () => [
+// pages that moved: old links (bookmarks, notifications, bot messages) still land in the right place
+// (plus every #/<module>/settings…, which is now #/settings/<module>…)
+const MOVED = { team: "settings/team" };
+/** The core destinations: one list behind the dock (`dock`), the phone menu and the command palette. */
+const corePages = () => [
   { href: "", label: "خانه", ico: "house" },
-  { href: "activity", label: "رویدادها", ico: "history" },
-  ...(isOwner() ? [{ section: "مدیریت" }, { href: "team", label: "تیم و دسترسی‌ها", ico: "users" },
-    { href: "settings", label: "تنظیمات", ico: "settings" }] : []),
-  { section: "شما" },
-  { href: "profile", label: "حساب من", ico: "user-cog" },
+  { href: "activity", label: "رویدادها", ico: "history", dock: true },
+  ...(isOwner() ? [{ href: "settings/team", label: "تیم و دسترسی‌ها", ico: "users", dock: true }] : []),
+  ...(canSettings() ? [{ href: "settings", label: "تنظیمات", ico: "settings", dock: true }] : []),
+  { href: "profile", label: "حساب من و رمز", ico: "user-cog" },
 ];
-const homeMobile = () => isOwner()
-  ? [{ href: "", label: "خانه", ico: "house" }, { href: "activity", label: "رویدادها", ico: "history" },
-    { href: "settings", label: "تنظیمات", ico: "settings" }, { href: "team", label: "تیم", ico: "users" }]
-  : [{ href: "", label: "خانه", ico: "house" }, { href: "activity", label: "رویدادها", ico: "history" },
-    { href: "profile", label: "حساب من", ico: "user-cog" }];
+/** Owners see every setting; a module's manager sees that module's (see pages/settings.js). */
+const canSettings = () => isOwner() || ordered().some((m) => moduleSettingsAllowed(m));
 
 const modules = {};                 // id → { info, def }  (also state.registry, for core pages)
 let current = null;                 // { mod, page, qs, cleanup, onParams, token }
 let shownModule = null;
 let unread = 0;
 let source = null;
+let titleObserver = null;
+let topnav = null;
+window.addEventListener("scroll", () => topnav?.classList.toggle("scrolled", window.scrollY > 4), { passive: true });
+on("theme", () => { const b = $("#theme-btn"); if (b) b.innerHTML = String(icon(isDark() ? "sun" : "moon")); });
 
 // ---------------------------------------------------------------- boot
 async function boot() {
@@ -88,7 +96,7 @@ function showLogin() {
     <div class="login-wrap">
       <form class="card login-card page-enter" id="login">
         <img class="login-logo" src="/static/img/logo.png" alt="Aiko">
-        <h1 style="text-align:center">${document.title || "پنل آیکو"}</h1>
+        <h1 style="text-align:center;font-size:22px">${document.title || "پنل آیکو"}</h1>
         <p class="muted small" style="text-align:center;margin-bottom:22px">فروشگاه و حسابداری، قیمت رقبا، استودیو محتوا</p>
         <div class="stack s12">
           <div class="field"><label for="u">نام کاربری</label>
@@ -119,64 +127,70 @@ function showLogin() {
 }
 
 // ---------------------------------------------------------------- shell
+const mac = () => navigator.platform?.includes("Mac");
 function renderShell() {
   const me = state.me;
   unread = me.unread || 0;
-  const rail = ordered().map((m) => html`<a class="rail-btn" data-mod="${m.info.id}" href="#/${m.info.id}" data-tip="${m.info.name}"
-      aria-label="${m.info.name}">${icon(m.info.icon)}</a>`);
   $("#root").innerHTML = String(html`
     <div class="app">
-      <nav class="rail" aria-label="بخش‌ها">
-        <a class="brand-mark" href="#/" aria-label="خانه"><img src="/static/img/logo.png" alt=""></a>
-        <a class="rail-btn" data-mod="" href="#/" data-tip="خانه" aria-label="خانه">${icon("house")}</a>
-        ${rail}
-        <span class="spacer"></span>
-        ${isOwner() ? html`<a class="rail-btn" data-mod="settings" href="#/settings" data-tip="تنظیمات" aria-label="تنظیمات">${icon("settings")}</a>` : ""}
-        <button class="rail-btn" id="theme-btn" data-tip="روشن / تیره" aria-label="تغییر تم">${icon("moon")}</button>
-        <a class="rail-btn" href="#/profile" data-tip="${me.user.name}" aria-label="حساب من">${avatar(me.user.name, "sm")}</a>
-        <button class="rail-btn" id="logout-btn" data-tip="خروج" aria-label="خروج">${icon("log-out")}</button>
+      <header class="topnav">
+        <a class="brand" href="#/" aria-label="خانه"><span class="brand-mark"><img src="/static/img/logo.png" alt=""></span>
+          <span class="brand-name">${me.app.name}</span></a>
+        <nav class="modnav" id="modnav" aria-label="بخش‌ها">
+          <a href="#/" data-mod="">${icon("house")}خانه</a>
+          ${ordered().map((m) => html`<a href="#/${m.info.id}" data-mod="${m.info.id}">${icon(m.info.icon)}${m.info.name}</a>`)}
+        </nav>
+        <div class="top-tools">
+          <button class="icon-btn" id="bell-btn" aria-label="اعلان‌ها">${icon("bell")}<span class="badge-dot hidden" id="bell-count"></span></button>
+          <button class="avatar-btn" id="me-btn" aria-label="حساب و منو">${avatar(me.user.name)}</button>
+        </div>
+      </header>
+      <nav class="dock" id="dock" aria-label="ابزارها">
+        <button class="dock-btn" id="search-btn" data-tip="رفتن به… (${mac() ? "⌘K" : "Ctrl K"})" aria-label="جستجو">${icon("search")}</button>
+        ${corePages().filter((p) => p.dock).map((p) => html`<a class="dock-btn" href="#/${p.href}" data-page="${p.href}" data-tip="${p.label}"
+          aria-label="${p.label}">${icon(p.ico)}</a>`)}
+        <span class="dock-sep"></span>
+        <button class="dock-btn" id="theme-btn" data-tip="روشن / تیره" aria-label="تغییر تم">${icon(isDark() ? "sun" : "moon")}</button>
       </nav>
-      <aside class="sidebar">
-        <div class="panel-head" id="panel-head"></div>
-        <nav class="nav" id="panel-nav"></nav>
-        <div class="panel-foot">${me.app.name} · <span class="ltr">${(window.AIKO_VERSION || "").slice(0, 7)}</span></div>
-      </aside>
       <main class="main">
         <button class="mini-bar" id="mini-bar" type="button" aria-label="رفتن به بالای صفحه"><span id="mini-title"></span></button>
-        <header class="topbar">
-          <a class="brand-mark mobile-brand" href="#/" aria-label="خانه"><img src="/static/img/logo.png" alt=""></a>
+        <div class="page-head">
           <div class="title"><h1 id="page-title"></h1><p id="page-sub"></p></div>
-          <div class="spacer"></div>
-          <button class="btn sm ghost search-trigger desk-only" id="search-btn" type="button">
-            <span class="row nowrap" style="gap:8px">${icon("search", "sm")} رفتن به…</span><kbd class="kbd">${navigator.platform?.includes("Mac") ? "⌘K" : "Ctrl K"}</kbd></button>
-          <span class="live-dot off" id="live-dot" title="اتصال زنده"></span>
-          <button class="btn icon has-dot" id="bell-btn" aria-label="اعلان‌ها">${icon("bell")}<span class="badge-dot hidden" id="bell-count"></span></button>
-          <span id="top-action"></span>
-        </header>
+          <div class="head-tools">
+            <span class="live-pill desk-only" title="اتصال زنده: اعداد بدون رفرش به‌روز می‌شوند"><span class="live-dot off" id="live-dot"></span><span id="live-text">در حال اتصال</span></span>
+            <span id="top-action" class="desk-only"></span>
+          </div>
+        </div>
+        <nav class="subnav" id="subnav" aria-label="صفحه‌های این بخش" hidden></nav>
         <div class="content" id="view"></div>
       </main>
-      <nav class="bottom-nav" id="bottom-nav"></nav>
+      <nav class="bottom-nav" id="bottom-nav" aria-label="بخش‌ها"></nav>
     </div>`);
   updateBell();
   $("#bell-btn").onclick = openNotifications;
-  $("#logout-btn").onclick = logout;
-  $("#theme-btn").onclick = toggleTheme;
+  $("#me-btn").onclick = (e) => openMenu(e.currentTarget);
+  $("#theme-btn").onclick = (e) => toggleTheme(e.currentTarget);
   $("#search-btn").onclick = openPalette;
-  delegate($("#bottom-nav"), "click", "[data-menu]", (e) => { e.preventDefault(); openMenu(); });
-  bindTooltips($(".rail"));
+  bindTooltips($("#dock"));
+  topnav = $(".topnav");
   // phones: once the big title scrolls away, a compact bar keeps "where am I" visible; tapping it goes back to top
   const mini = $("#mini-bar");
-  new IntersectionObserver(([e]) => mini.classList.toggle("show", !e.isIntersecting && window.scrollY > 0)).observe($(".topbar"));
-  mini.onclick = () => window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  titleObserver?.disconnect();
+  titleObserver = new IntersectionObserver(([e]) => mini.classList.toggle("show", !e.isIntersecting && window.scrollY > 0));
+  titleObserver.observe($(".page-head"));
+  mini.onclick = () => window.scrollTo({ top: 0, behavior: reducedMotion() ? "auto" : "smooth" });
 }
 
 // ---------------------------------------------------------------- tooltips
-// One fixed tooltip for [data-tip] elements (mouse only). The first waits a beat so passing over the rail doesn't
+// One fixed tooltip for [data-tip] elements (mouse only). The first waits a beat so passing over the dock doesn't
 // flash labels; while one is showing, moving to a neighbour shows it instantly with no animation.
 function bindTooltips(root) {
-  const tip = Object.assign(document.createElement("div"), { className: "tip", role: "tooltip" });
-  tip.dataset.state = "hidden";
-  document.body.appendChild(tip);
+  let tip = document.querySelector("body > .tip");               // one for the page's life, not one per login
+  if (!tip) {
+    tip = Object.assign(document.createElement("div"), { className: "tip", role: "tooltip" });
+    tip.dataset.state = "hidden";
+    document.body.appendChild(tip);
+  }
   let timer = null, warmUntil = 0;
   const show = (el) => {
     tip.textContent = el.dataset.tip;
@@ -209,10 +223,9 @@ function bindTooltips(root) {
 const normFa = (s) => String(s || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/‌/g, " ").toLowerCase();
 function paletteItems() {
   const items = [];
-  const add = (mod, group, it) => items.push({ label: it.label, group, ico: it.ico, href: hrefFor(mod, it.href) });
-  homeNav().filter((i) => !i.section).forEach((it) => add("", "عمومی", it));
+  corePages().forEach((it) => items.push({ label: it.label, group: "عمومی", ico: it.ico, href: `#/${it.href}` }));
   ordered().filter((m) => m.def).forEach((m) => {
-    m.def.nav(roleOf(m.info.id)).filter((i) => !i.section).forEach((it) => add(m.info.id, m.info.name, it));
+    pagesOf(m.info.id).forEach((it) => items.push({ label: it.label, group: m.info.name, ico: it.ico, href: hrefFor(m.info.id, it.href) }));
     (m.def.quick ? m.def.quick(roleOf(m.info.id)) : []).forEach((q) =>
       items.push({ label: q.label, group: "میانبر", ico: q.ico, href: q.href, sub: q.sub }));
   });
@@ -279,76 +292,75 @@ async function logout() {
   showLogin();
 }
 
-function toggleTheme() {
-  const root = document.documentElement;
-  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-  const apply = () => {
-    root.dataset.theme = dark ? "light" : "dark";
-    try { localStorage.setItem("aiko-theme", root.dataset.theme); } catch (e) {}
-    window.aikoSyncThemeColor?.();
-    emit("theme");
-  };
-  // a short crossfade instead of a sudden brightness jump (where the browser supports view transitions)
-  if (document.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) document.startViewTransition(apply);
-  else apply();
+// ---------------------------------------------------------------- the account menu (avatar): everything the dock has
+function openMenu(anchor) {
+  const me = state.me;
+  const link = (p) => ({ href: `#/${p.href}`, ico: p.ico, label: p.label });
+  const pages = corePages();
+  const items = [
+    ...(isPhone() ? [...pages.filter((p) => p.dock).map(link), { act: "search", ico: "search", label: "رفتن به…" }, { sep: true }] : []),
+    link(pages.find((p) => p.href === "profile")),
+    { act: "theme", ico: isDark() ? "sun" : "moon", label: isDark() ? "تم روشن" : "تم تیره" },
+    { sep: true },
+    { act: "logout", ico: "log-out", label: "خروج" },
+  ];
+  popover(anchor, String(html`<div class="menu">
+    <div class="menu-head">${avatar(me.user.name, "sm")}<div style="min-width:0"><b class="ellipsis">${me.user.name}</b><span>${isOwner() ? "مدیر کل" : "کاربر"} · @${me.user.username}</span></div></div>
+    ${items.map((it) => it.sep ? html`<div class="sep"></div>` : it.href
+      ? html`<a href="${it.href}" data-close>${icon(it.ico)}${it.label}</a>`
+      : html`<button type="button" data-act="${it.act}">${icon(it.ico)}${it.label}</button>`)}
+  </div>`), (pop, close) => {
+    pop.addEventListener("click", (e) => {
+      const el = e.target.closest("[data-close], [data-act]");
+      if (!el) return;
+      close();
+      if (el.dataset.act === "theme") toggleTheme(anchor);
+      if (el.dataset.act === "logout") logout();
+      if (el.dataset.act === "search") openPalette();
+    });
+  });
 }
 
-function navFor(mod) {
-  if (!mod) return homeNav();
+// ---------------------------------------------------------------- navigation model
+/** A module's pages, shown as tabs under the page title. */
+function pagesOf(mod) {
   const m = modules[mod];
   return m?.def ? m.def.nav(roleOf(mod)) : [];
 }
 function hrefFor(mod, page) {
   return mod ? `#/${mod}${page ? "/" + page : ""}` : `#/${page}`;
 }
+/** The module's main action (top of the page; middle of the phone bar), with a full href when it is a link. */
+function mainAction(mod) {
+  const a = mod ? modules[mod]?.def?.action?.(roleOf(mod)) : null;
+  return a ? { ...a, ico: a.ico || "plus", href: a.href !== undefined ? hrefFor(mod, a.href) : null } : null;
+}
+/** The middle button of the phone bar: the module's main action, or on home the first quick action. */
+function fabFor(mod) {
+  if (mod) return mainAction(mod)?.href ? mainAction(mod) : null;
+  const q = ordered().flatMap((m) => (m.def?.quick ? m.def.quick(roleOf(m.info.id)) : []))[0];
+  return q ? { href: q.href, ico: "plus", label: q.label } : null;
+}
 
-/** Redraw the parts of the shell that depend on the current module (panel, bottom nav, top action). */
+/** Redraw the parts of the shell that depend on the current module (tabs, phone bar, page action). */
 function showModule(mod) {
   if (shownModule === mod) return;
   shownModule = mod;
-  document.querySelectorAll(".rail-btn[data-mod]").forEach((a) => a.classList.toggle("on", a.dataset.mod === mod && a.dataset.mod !== "settings"));
-  const m = mod ? modules[mod] : null;
-  const role = mod ? roleOf(mod) : null;
-  const roleLabel = m ? (m.info.roles[role] || role) : "";
-  $("#panel-head").innerHTML = String(html`<span class="panel-ico">${icon(m ? m.info.icon : "house")}</span>
-    <div style="min-width:0"><div class="panel-title ellipsis">${m ? m.info.name : "خانه"}</div>
-      <div class="panel-sub ellipsis">${m ? roleLabel : `سلام ${state.me.user.name}`}</div></div>`);
-  $("#panel-nav").innerHTML = String(html`${navFor(mod).map((it) => it.section
-    ? html`<div class="nav-label">${it.section}</div>`
-    : html`<a href="${hrefFor(mod, it.href)}" data-nav="${it.href}">${icon(it.ico)}<span>${it.label}</span></a>`)}`);
-  const mobile = m?.def ? m.def.mobile(role) : homeMobile();
-  $("#bottom-nav").innerHTML = String(html`${mobile.slice(0, 4).map((it) => html`<a href="${hrefFor(mod, it.href)}"
-      data-nav="${it.fab ? "" : it.href}" class="${it.fab ? "fab" : ""}" aria-label="${it.label}">${icon(it.ico)}<span>${it.label}</span></a>`)}
-    <a href="#" data-menu aria-label="منو">${icon("menu")}<span>منو</span></a>`);
-  const action = m?.def?.action ? m.def.action(role) : null;
-  const slot = $("#top-action");
-  slot.innerHTML = action ? String(html`<a class="btn brand desk-only" href="${action.href !== undefined ? hrefFor(mod, action.href) : "#"}"
-    id="top-action-btn">${icon(action.ico || "plus")} ${action.label}</a>`) : "";
-  if (action?.onClick) $("#top-action-btn").onclick = (e) => { e.preventDefault(); action.onClick(e); };
-}
+  document.querySelectorAll("#modnav [data-mod]").forEach((a) => a.classList.toggle("on", a.dataset.mod === mod));
+  const pages = mod ? pagesOf(mod) : [];
+  const sub = $("#subnav");
+  sub.hidden = pages.length < 2;
+  sub.innerHTML = String(html`${pages.map((it) => html`<a href="${hrefFor(mod, it.href)}" data-nav="${it.href}">${icon(it.ico)}<span>${it.label}</span></a>`)}`);
 
-function openMenu() {
-  const mod = shownModule;
-  const items = navFor(mod).filter((i) => !i.section);
-  const s = sheet({
-    title: "منو",
-    body: html`<div class="module-grid">
-        <a class="module-tile ${mod === "" ? "on" : ""}" href="#/" data-close><span class="panel-ico">${icon("house")}</span>خانه</a>
-        ${ordered().map((m) => html`<a class="module-tile ${mod === m.info.id ? "on" : ""}" href="#/${m.info.id}" data-close>
-          <span class="panel-ico">${icon(m.info.icon)}</span>${m.info.name}</a>`)}
-      </div>
-      ${mod ? html`<div class="nav-label mt16">${modules[mod]?.info.name}</div>
-      <div class="nav">${items.map((it) => html`<a href="${hrefFor(mod, it.href)}" data-close>${icon(it.ico)}<span>${it.label}</span></a>`)}</div>` : ""}
-      <div class="divider"></div>
-      <div class="nav">
-        ${mod ? homeNav().filter((i) => !i.section && i.href).map((it) => html`<a href="#/${it.href}" data-close>${icon(it.ico)}<span>${it.label}</span></a>`) : ""}
-        <a href="#" id="m-theme">${icon("moon")}<span>روشن / تیره</span></a>
-        <a href="#" id="m-logout">${icon("log-out")}<span>خروج (${state.me.user.name})</span></a>
-      </div>`,
-  });
-  s.root.querySelectorAll("a[data-close]").forEach((a) => a.addEventListener("click", () => s.close()));
-  s.root.querySelector("#m-theme").onclick = (e) => { e.preventDefault(); toggleTheme(); };
-  s.root.querySelector("#m-logout").onclick = (e) => { e.preventDefault(); s.close(); logout(); };
+  const dest = [{ id: "", name: "خانه", short: "خانه", icon: "house" }, ...ordered().map((m) => m.info)].slice(0, 4);
+  const fab = fabFor(mod);
+  const cells = dest.map((d) => html`<a href="#/${d.id}" data-mod="${d.id}" class="${d.id === mod ? "on" : ""}" aria-label="${d.name}">${icon(d.icon)}<span>${d.short}</span></a>`);
+  if (fab) cells.splice(Math.ceil(cells.length / 2), 0, html`<a href="${fab.href}" class="fab" aria-label="${fab.label}">${icon(fab.ico)}<span>${fab.label}</span></a>`);
+  $("#bottom-nav").innerHTML = String(html`${cells}`);
+
+  const action = mainAction(mod);
+  $("#top-action").innerHTML = action ? String(html`<a class="btn primary sm" href="${action.href || "#"}" id="top-action-btn">${icon(action.ico)} ${action.label}</a>`) : "";
+  if (action?.onClick) $("#top-action-btn").onclick = (e) => { e.preventDefault(); action.onClick(e); };
 }
 
 // ---------------------------------------------------------------- routing
@@ -369,6 +381,10 @@ function parseHash() {
 
 async function route() {
   if (!state.me || !$("#view")) return;
+  const [path, oldQs] = location.hash.replace(/^#\/?/, "").split("?");
+  const [first, second, ...rest] = path.split("/");
+  const moved = MOVED[first] ? [MOVED[first], second, ...rest] : modules[first] && second === "settings" ? ["settings", first, ...rest] : null;
+  if (moved) { location.replace(`#/${moved.filter((x) => x !== undefined).join("/")}${oldQs ? `?${oldQs}` : ""}`); return; }
   let { mod, page, params, query, qs } = parseHash();
   let loader;
   if (mod) {
@@ -377,14 +393,20 @@ async function route() {
     if (!m.def.pages[page] || (m.def.allowed && !m.def.allowed(roleOf(mod), page))) { page = ""; params = []; }
     loader = m.def.pages[page];
   } else {
-    if (!CORE_PAGES[page] || (OWNER_ONLY.has(page) && !isOwner())) { page = ""; params = []; }
+    if (!CORE_PAGES[page] || (page === "settings" && !canSettings())) { page = ""; params = []; }
     loader = CORE_PAGES[page];
   }
   showModule(mod);
-  // the gear in the rail is "where you are" on the settings page; the house button everywhere else in the home area
-  document.querySelector('.rail-btn[data-mod="settings"]')?.classList.toggle("on", !mod && page === "settings");
-  document.querySelector('.rail-btn[data-mod=""]')?.classList.toggle("on", !mod && page !== "settings");
-  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === page && !a.classList.contains("fab")));
+  // the home section is "on" for home only; activity/team/settings light up their dock button instead (the most
+  // specific one: settings/team before settings)
+  $('#modnav [data-mod=""]')?.classList.toggle("on", !mod && page === "");
+  document.querySelector('#bottom-nav [data-mod=""]')?.classList.toggle("on", !mod && page === "");
+  const corePath = mod ? null : [page, ...params].join("/");
+  const lit = corePages().filter((p) => p.dock && corePath !== null && (corePath === p.href || corePath.startsWith(`${p.href}/`)))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+  document.querySelectorAll("#dock [data-page]").forEach((a) => a.classList.toggle("on", a.dataset.page === lit));
+  document.querySelectorAll("#subnav [data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === page));
+  $("#subnav .on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
 
   // same page, different sub-path (e.g. opening a detail): let the page handle it without re-rendering
   if (current && current.mod === mod && current.page === page && current.onParams && qs === current.qs) {
@@ -393,8 +415,9 @@ async function route() {
   }
   if (current && current.cleanup) current.cleanup();
   closeAllSheets();
-  const view = $("#view");
-  view.classList.toggle("erp-ui", mod === "erp");
+  // a fresh #view for every page: listeners a page attached to it (delegate(view, …)) end with that page
+  const stale = $("#view"), view = stale.cloneNode(false);
+  stale.replaceWith(view);
   view.innerHTML = `<div class="stack"><div class="skeleton" style="height:120px"></div><div class="skeleton" style="height:320px"></div></div>`;
   window.scrollTo({ top: 0 });
   const token = Symbol();
@@ -425,11 +448,17 @@ function showError(title, detail = "") {
 }
 
 // ---------------------------------------------------------------- live updates & notifications
+function setLive(onLine) {
+  state.live = onLine;
+  $("#live-dot")?.classList.toggle("off", !onLine);
+  const t = $("#live-text");
+  if (t) t.textContent = onLine ? "زنده" : "قطع — دوباره وصل می‌شود";
+}
 function connectLive() {
   if (source) source.close();
   source = new EventSource("/api/stream");
-  source.onopen = () => { state.live = true; $("#live-dot")?.classList.remove("off"); emit("live-open"); };
-  source.onerror = () => { state.live = false; $("#live-dot")?.classList.add("off"); };
+  source.onopen = () => { setLive(true); emit("live-open"); };
+  source.onerror = () => setLive(false);
   source.onmessage = (msg) => {
     let ev;
     try { ev = JSON.parse(msg.data); } catch (e) { return; }

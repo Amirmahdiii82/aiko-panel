@@ -1,5 +1,5 @@
 // The signed-in user's own account: who they are, what they can open, password.
-import { $, api, emit, html, icon, state, toast } from "../kit.js";
+import { $, api, html, icon, state, toast, toggleTheme } from "../kit.js";
 
 export async function render(view, params, { setTitle }) {
   const me = state.me;
@@ -31,11 +31,5 @@ export async function render(view, params, { setTitle }) {
     toast("رمز عوض شد");
     e.target.reset();
   };
-  $("#theme", view).onclick = () => {
-    const root = document.documentElement;
-    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-    root.dataset.theme = dark ? "light" : "dark";
-    try { localStorage.setItem("aiko-theme", root.dataset.theme); } catch (err) { /* private mode */ }
-    emit("theme");
-  };
+  $("#theme", view).onclick = (e) => toggleTheme(e.currentTarget);
 }

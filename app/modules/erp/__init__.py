@@ -1,6 +1,4 @@
 """ERP module: inventory, quick sale, sales from every channel, purchases, expenses, partner accounts, WooCommerce sync."""
-import json
-import sys
 from pathlib import Path
 
 from ...core import db as core_db
@@ -59,18 +57,8 @@ def _nightly_site_check() -> None:
             pass
 
 
-def tag_sources() -> None:
-    """Sales copied in by a one-time import after the schema change still say "manual"; name where they came from."""
-    with db.tx() as con:
-        con.execute("UPDATE sales SET source = 'site' WHERE source = 'manual' AND woo_order_id IS NOT NULL")
-        con.execute("""UPDATE sales SET source = 'sheet' WHERE source = 'manual' AND woo_order_id IS NULL
-                       AND note LIKE '%از فایل اکسل%'""")
-
-
 async def startup() -> None:
     db.seed_settings()
-    tag_sources()
-    client.adopt_legacy_keys()
     client.ensure_webhook_secret()
     bootstrap()
     events.on("user.saved", on_user_saved)
@@ -107,19 +95,10 @@ def summary(user: dict) -> dict:
                      "problems": site[0] or 0, "nocount": site[1] or 0}}
 
 
-def _cli_import_excel(args: list[str]) -> None:
-    if not args:
-        print("usage: python -m app erp import-excel FILE.xlsx")
-        sys.exit(1)
-    db.seed_settings()
-    bootstrap()
-    from . import importer
-    print(json.dumps(importer.run(args[0]), ensure_ascii=False, indent=2))
-
-
 module = Module(
     id="erp",
     name="فروشگاه و حسابداری",
+    short="فروشگاه",
     icon="store",
     description="انبار، فروش از همه کانال‌ها، خرید، هزینه‌ها و حساب شرکا",
     roles={"admin": "مدیر", "seller": "فروشنده"},
@@ -130,7 +109,6 @@ module = Module(
     notify=notify.BOT_KINDS,
     summary=summary,
     event_filter=notify.visible_to,
-    cli={"import-excel": _cli_import_excel},
     bot={**botflows.FLOWS, **botreports.COMMANDS},
     exception_handlers={ledger.LedgerError: 400, client.WooError: 502},
 )

@@ -1,6 +1,6 @@
 // Shared UI kit for every module: money inputs (with amount in words), Jalali date field, chips, uploads,
 // badges, KPI tiles, feed items. Module-specific widgets live in the module (e.g. /m/erp/erp.js).
-import { $$, ago, compact, delegate, esc, fa, html, icon, jdate, moduleName, num, numWords, parseNum, popover, raw, state, toast, upload } from "./core.js";
+import { ago, compact, delegate, esc, fa, html, icon, jdate, moduleName, num, numWords, parseNum, popover, raw, state, toast, upload } from "./core.js";
 import { MONTHS, WEEKDAYS, addDays, isoToJ, jToIso, monthLength, weekdayIndex } from "./jalali.js";
 
 // ---------------------------------------------------------------- money input
@@ -187,13 +187,16 @@ export function thumb(p, size = "") {
 export function emptyState(ico, title, text = "", action = "") {
   return html`<div class="empty"><div class="blob">${icon(ico)}</div><h3>${title}</h3>${text ? html`<p class="small">${text}</p>` : ""}${action}</div>`;
 }
-export function kpi({ label, value, unit = "", foot = "", color = "", ico = "", title = "" }) {
-  return html`<div class="kpi ${color}" title="${title}">
-    ${ico ? html`<span class="k-icon">${icon(ico)}</span>` : ""}
+/** A number tile. `hero` makes it the one dark tile of a row; `href` makes the whole tile a link and `link` adds a
+ *  "see more" line along its bottom; `tone: "bad"` shows the number in red (a loss). */
+export function kpi({ label, value, unit = "", foot = "", ico = "", title = "", hero = false, href = "", link = "", tone = "" }) {
+  const body = html`${ico ? html`<span class="k-icon">${icon(ico)}</span>` : ""}
     <div class="k-label">${label}</div>
     <div class="k-value num">${value}${unit ? html`<span class="k-unit">${unit}</span>` : ""}</div>
     ${foot ? html`<div class="k-foot">${foot}</div>` : ""}
-  </div>`;
+    ${link ? html`<div class="k-link">${link}</div>` : ""}`;
+  const cls = `kpi ${hero ? "hero" : ""} ${tone}`;
+  return href ? html`<a class="${cls}" href="${href}" title="${title}">${body}</a>` : html`<div class="${cls}" title="${title}">${body}</div>`;
 }
 export function moneyKpi(opts) {
   return kpi({ ...opts, value: compact(opts.amount), unit: "تومان", title: `${num(opts.amount)} تومان` });
@@ -212,6 +215,20 @@ export function barList(items, { label, value, fmt = (v) => compact(v), sub, col
     <div class="bar-track"><div class="bar-fill ${colors ? "c" + ((idx % 5) + 1) : ""}" style="width:${Math.max(2, (Math.abs(value(it)) / max) * 100)}%"></div></div>
   </div>`)}</div>`;
 }
+/** "Needs attention": rows of { tone: bad|warn|info|ok, ico, text, sub?, href }, worst first, each a link; a calm line
+ *  when there is nothing. `todoBadge(items)` is the count for the card head. */
+export function todoList(items, { clear = "موردی برای رسیدگی نیست." } = {}) {
+  const order = { bad: 0, warn: 1, info: 2, ok: 3 };
+  const rows = [...items].sort((a, b) => (order[a.tone] ?? 2) - (order[b.tone] ?? 2));
+  return rows.length ? html`<div class="todo">${rows.map((a) => html`<a class="todo-item" href="${a.href || "#/"}">
+      <span class="t-ico ${a.tone || "info"}">${icon(a.ico || "info")}</span>
+      <span class="grow"><span class="t-text">${a.text}</span>${a.sub ? html`<span class="t-sub">${a.sub}</span>` : ""}</span>
+      ${icon("chevron-left", "sm")}</a>`)}</div>`
+    : html`<div class="todo-clear">${icon("circle-check")}<div><b>همه چیز مرتب است</b><p class="small muted">${clear}</p></div></div>`;
+}
+export const todoBadge = (items) => (items.length
+  ? html`<span class="badge ${items.some((i) => i.tone === "bad") ? "bad" : "warn"}">${fa(items.length)}</span>` : "");
+
 const segmenter = typeof Intl.Segmenter === "function" ? new Intl.Segmenter("fa", { granularity: "grapheme" }) : null;
 /** First visible character (a whole emoji or accented letter, never half of one). */
 function initial(name) {

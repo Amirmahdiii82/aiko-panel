@@ -35,7 +35,7 @@ export async function render(view, params, { setTitle, query }) {
   };
   const meta = { sell: fresh.sell(), buy: fresh.buy() };
 
-  setTitle(admin ? "ثبت سریع" : "ثبت فروش", MODES[mode].hint);
+  setTitle(admin ? "ثبت فروش و خرید" : "ثبت فروش", MODES[mode].hint);
   view.innerHTML = String(html`<div class="pos" data-mode="${mode}">
     ${admin ? html`<div class="pos-head">
       <div class="seg pos-mode" role="tablist">${Object.entries(MODES).map(([k, m]) => html`<button role="tab" data-mode="${k}">${icon(m.ico)}${m.label}</button>`)}</div>
@@ -55,7 +55,7 @@ export async function render(view, params, { setTitle, query }) {
       <aside class="card ticket" id="cart"></aside>
     </div>
   </div>
-  <button class="btn brand lg hidden cart-bar" id="cart-bar"></button>`);
+  <button class="btn primary lg hidden cart-bar" id="cart-bar"></button>`);
 
   const root = $(".pos", view), tilesEl = $("#tiles", view), cartEl = $("#cart", view), shelvesEl = $("#shelves", view), bar = $("#cart-bar", view);
   const cart = () => carts[mode];
@@ -216,9 +216,9 @@ export async function render(view, params, { setTitle, query }) {
         ${cart().size ? html`<button class="btn xs ghost" data-clear>${icon("trash-2", "sm")} خالی</button>` : ""}</div>
       <div class="ticket-lines">${ls.length ? ls.map(lineHtml)
         : html`<div class="ticket-empty">${icon(mode === "buy" ? "package-plus" : "shopping-bag", "lg")}<p class="small">${mode === "buy" ? "کالاهای خریده‌شده را از فهرست انتخاب کنید" : "محصول را از فهرست انتخاب کنید"}</p></div>`}</div>
-      <form class="stack s12" id="meta" onsubmit="return false">${mode === "buy" ? buyMeta(x) : sellMeta(x)}</form>
+      <form class="stack s12" id="meta">${mode === "buy" ? buyMeta(x) : sellMeta(x)}</form>
       <div class="totals" id="totals">${totalsHtml(t)}</div>
-      <button class="btn ${mode === "buy" ? "primary" : "brand"} lg block" data-submit ${cart().size ? "" : "disabled"}>${icon("check")} ${mode === "buy" ? "ثبت خرید و افزودن به انبار" : "ثبت فروش"}</button>`);
+      <button class="btn primary lg block" data-submit ${cart().size ? "" : "disabled"}>${icon("check")} ${mode === "buy" ? "ثبت خرید و افزودن به انبار" : "ثبت فروش"}</button>`);
     updateBar(t);
   }
   function totalsHtml(t) {
@@ -238,7 +238,7 @@ export async function render(view, params, { setTitle, query }) {
   }
   let cartVisible = false;
   function updateBar(t = totals()) {
-    bar.className = `btn ${mode === "buy" ? "primary" : "brand"} lg cart-bar ${!cart().size || window.innerWidth > 1180 || cartVisible ? "hidden" : ""}`;
+    bar.className = `btn primary lg cart-bar ${!cart().size || window.innerWidth > 1180 || cartVisible ? "hidden" : ""}`;
     bar.innerHTML = String(html`${icon(mode === "buy" ? "truck" : "shopping-cart")} ${fa(t.count)} عدد، ${num(t.total)} تومان — ادامه`);
   }
   const io = new IntersectionObserver((entries) => { cartVisible = entries[0].isIntersecting; updateBar(); });
@@ -290,7 +290,7 @@ export async function render(view, params, { setTitle, query }) {
       b.classList.toggle("on", b.dataset.mode === mode);
       b.setAttribute("aria-selected", String(b.dataset.mode === mode));
     });
-    setTitle(admin ? "ثبت سریع" : "ثبت فروش", MODES[mode].hint);
+    setTitle(admin ? "ثبت فروش و خرید" : "ثبت فروش", MODES[mode].hint);
     history.replaceState(null, "", mode === "buy" ? "#/erp/sell?mode=buy" : "#/erp/sell");
     drawShelves(); drawTiles(); drawCart();
   }
@@ -336,6 +336,8 @@ export async function render(view, params, { setTitle, query }) {
   delegate(cartEl, "change", "input[name=paid]", () => { captureMeta(); drawCart(); });
   delegate(cartEl, "input", "#meta input[data-money]", () => { captureMeta(); refreshTotals(); });
   delegate(cartEl, "click", "[data-submit]", () => (mode === "buy" ? submitBuy() : submitSell()));
+  // Enter in a field of the details form must not submit it (that would reload the page and lose the cart)
+  delegate(cartEl, "submit", "#meta", (e) => e.preventDefault());
   bindMoney(cartEl);
   bindDates(cartEl);
   bindUploads(cartEl);

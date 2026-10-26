@@ -33,6 +33,13 @@ def every(job_id: str, seconds: int, fn: Callable, *args) -> None:
                       coalesce=True, max_instances=1)
 
 
+def remove(prefix: str) -> None:
+    """Drop every scheduled job whose id starts with `prefix` (before scheduling a changed timetable)."""
+    for j in scheduler.get_jobs():
+        if j.id.startswith(prefix):
+            j.remove()
+
+
 def next_runs(prefix: str) -> list:
     return sorted(j.next_run_time for j in scheduler.get_jobs() if j.id.startswith(prefix) and j.next_run_time)
 

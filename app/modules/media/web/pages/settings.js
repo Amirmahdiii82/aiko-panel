@@ -1,11 +1,11 @@
 // Studio settings (owners only): monthly spending cap. The OpenRouter key and the outbound proxy are shared
 // connections in Settings → Connections (this page is also shown there as the "Studio" tab).
-import { $, api, html, icon, isOwner, raw, toast } from "/static/js/kit.js";
+import { $, api, html, icon, raw, toast } from "/static/js/kit.js";
 import { M, loadConfig, usd } from "../media.js";
 
 export async function render(view, params, { setTitle }) {
   setTitle("تنظیمات استودیو", "سقف هزینه و وضعیت اتصال OpenRouter");
-  if (!isOwner()) { location.hash = "#/media"; return; }
+
   const draw = async () => {
     const [s, cfg] = await Promise.all([api("/api/media/settings"), loadConfig()]);
     view.innerHTML = String(html`<div class="grid side">

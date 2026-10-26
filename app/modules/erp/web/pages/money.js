@@ -48,7 +48,6 @@ function page(d) {
   const agents = d.accounts.filter((a) => a.kind === "agent" && (a.active || a.balance));
   return html`<div class="stack">
     <section class="hero">
-      <span class="blob-deco" style="width:240px;height:240px;left:-70px;top:-90px"></span>
       <div class="row between" style="align-items:flex-start">
         <div><h1>${icon("handshake")} تسویه شرکا</h1>
           <p class="muted small">هر شریک به اندازه سهمش باید در فروشگاه پول گذاشته باشد. اختلاف را با یک انتقال صاف کنید.</p></div>
@@ -63,7 +62,7 @@ function page(d) {
     <div class="grid g2">
       ${P.partners.map((p) => html`<section class="card">
         <div class="card-head">${avatar(p.name)}<h2>${p.name}</h2><span class="badge primary">سهم ${fa(p.share)}٪</span><span class="spacer"></span>
-          <span class="badge ${p.excess > 0 ? "ok" : p.excess < 0 ? "coral" : ""}">${p.excess > 0 ? `طلبکار ${compact(p.excess)}` : p.excess < 0 ? `بدهکار ${compact(-p.excess)}` : "صاف"}</span></div>
+          <span class="badge ${p.excess > 0 ? "ok" : p.excess < 0 ? "bad" : ""}">${p.excess > 0 ? `طلبکار ${compact(p.excess)}` : p.excess < 0 ? `بدهکار ${compact(-p.excess)}` : "صاف"}</span></div>
         <div class="small muted">آورده خالص در فروشگاه</div>
         <div class="money-big">${num(p.net)} <span class="small muted">تومان</span></div>
         <div class="bar-track mt8"><div class="bar-fill ${p.id === 1 ? "c1" : "c2"}" style="width:${Math.max(3, (Math.abs(p.net) / maxNet) * 100)}%"></div></div>
@@ -97,7 +96,7 @@ function page(d) {
         </div>
         <p>مانده هر حساب = دریافتی‌ها − پرداختی‌ها. مانده منفی کارت شخصی یعنی آن شریک از جیب خودش برای فروشگاه خرج کرده.</p></div>
       <div class="grid g3" style="gap:14px">
-        ${shopAccs.map((a) => html`<div class="kpi ${a.kind === "partner" ? "orchid" : "indigo"}" data-account="${a.id}" style="cursor:pointer;min-height:110px">
+        ${shopAccs.map((a) => html`<div class="kpi" data-account="${a.id}" style="cursor:pointer;min-height:110px">
           <span class="k-icon">${icon(a.kind === "partner" ? "credit-card" : "landmark")}</span>
           <div class="k-label">${a.name}</div>
           <div class="k-value num ${a.balance < 0 ? "bad-ink" : ""}">${compact(a.balance)}<span class="k-unit">تومان</span></div>
@@ -121,7 +120,7 @@ function page(d) {
       <section class="card">
         <div class="card-head"><h2>${icon("piggy-bank")} آورده و برداشت</h2></div>
         ${d.capital.length ? html`<div class="table-wrap"><table class="t responsive"><tbody>${d.capital.map((c) => html`<tr>
-          <td class="nowrap">${jdate(c.date, { year: false })}</td><td><span class="badge ${c.kind === "in" ? "ok" : "coral"}">${c.kind === "in" ? "آورده" : "برداشت"}</span> ${c.partner_name}</td>
+          <td class="nowrap">${jdate(c.date, { year: false })}</td><td><span class="badge ${c.kind === "in" ? "ok" : "bad"}">${c.kind === "in" ? "آورده" : "برداشت"}</span> ${c.partner_name}</td>
           <td class="small muted m-full">${c.account_name || ""}${c.note ? html`، <bdi>${c.note}</bdi>` : ""}</td><td class="n bold">${num(c.amount)}</td>
           <td><button class="btn icon xs ghost" data-del-cap="${c.id}" aria-label="حذف">${icon("trash-2", "sm")}</button></td></tr>`)}</tbody></table></div>`
           : emptyState("piggy-bank", "ردیفی نیست")}
@@ -231,7 +230,7 @@ async function openStatement(acc, done) {
   const rows = await api(`/api/erp/accounts/${acc.id}/flows`);
   s.root.querySelector(".sheet-body").innerHTML = String(html`<div class="stack">
     <div class="inset row between"><span>مانده</span><b class="num ${acc.balance < 0 ? "bad-ink" : ""}" style="font-size:20px">${toman(acc.balance)}</b></div>
-    <div class="row small"><span class="badge ok">ورودی ${compact(acc.money_in)}</span><span class="badge coral">خروجی ${compact(acc.money_out)}</span></div>
+    <div class="row small"><span class="badge ok">ورودی ${compact(acc.money_in)}</span><span class="badge bad">خروجی ${compact(acc.money_out)}</span></div>
     ${rows.length ? html`<div class="table-wrap"><table class="t">
       <thead><tr><th>تاریخ</th><th>شرح</th><th class="n">مبلغ</th><th class="n">مانده</th></tr></thead>
       <tbody>${rows.map((r) => html`<tr><td class="nowrap small">${jdate(r.date, { year: false })}</td>

@@ -71,7 +71,10 @@ def test_seller_sale_goes_to_their_cash_account_and_hides_costs(owner):
 def test_dashboard_and_reports(owner):
     _product(owner)
     d = owner.get("/api/erp/dashboard").json()
-    assert {"today", "period", "inventory", "recent"} <= set(d)
+    assert {"today", "period", "inventory", "trend", "channels"} <= set(d)
+    for days in (7, 90, 365):
+        t = owner.get(f"/api/erp/dashboard?days={days}&channel=website").json()
+        assert t["days"] == days and t["channel"] == "website" and len(t["trend"]["current"]) == len(t["trend"]["previous"])
     assert owner.get("/api/erp/reports?period=month").status_code == 200
     assert owner.get("/api/erp/export.xlsx").status_code == 200
 

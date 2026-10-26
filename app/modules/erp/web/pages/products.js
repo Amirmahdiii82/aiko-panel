@@ -18,7 +18,7 @@ const norm = (s) => String(s || "").replace(/ي/g, "ی").replace(/ك/g, "ک").re
 
 export async function render(view, params, { setTitle, query }) {
   const admin = isAdmin();
-  setTitle(admin ? "محصولات و انبار" : "موجودی محصولات", admin ? "موجودی اینجا مرجع است و به سایت فرستاده می‌شود" : "");
+  setTitle(admin ? "انبار" : "موجودی محصولات", admin ? "موجودی فقط اینجا عوض می‌شود و سایت همان عدد را می‌گیرد" : "");
   let filter = query.get("f") || "all", q = "", cat = "";
   let products = [];
   const load = async () => {
@@ -55,7 +55,7 @@ export async function render(view, params, { setTitle, query }) {
   }
   function drawFilters() {
     const c = counts();
-    $("#filters", view).innerHTML = String(html`${FILTERS.filter((f) => admin || !f.admin).map((f) => html`<button class="chip ${filter === f.key ? "on" : ""} ${f.key === "out" ? "coral" : ""}" data-f="${f.key}">
+    $("#filters", view).innerHTML = String(html`${FILTERS.filter((f) => admin || !f.admin).map((f) => html`<button class="chip ${filter === f.key ? "on" : ""}" data-f="${f.key}">
       ${f.label}${c[f.key] !== null && c[f.key] !== undefined ? html` <span class="c-count">${fa(c[f.key])}</span>` : ""}</button>`)}`);
     const cats = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
     $("#cat", view).innerHTML = String(selectOptions(cats.map((c2) => ({ value: c2, label: c2 })), cat, "همه دسته‌ها"));
@@ -257,7 +257,7 @@ export function openProduct(id, changed) {
           <thead><tr><th>تاریخ</th><th>نوع</th><th class="n">تغییر</th><th>شرح</th></tr></thead>
           <tbody>${moves.map((m) => html`<tr>
             <td class="nowrap small">${jdate(m.created_at.slice(0, 10), { year: false })} <span class="muted">${timeOf(m.created_at)}</span></td>
-            <td><span class="badge ${m.qty > 0 ? "ok" : "coral"}">${MOVE_LABEL[m.kind] || m.kind}</span></td>
+            <td><span class="badge ${m.qty > 0 ? "ok" : "bad"}">${MOVE_LABEL[m.kind] || m.kind}</span></td>
             <td class="n bold ${m.qty > 0 ? "ok-ink" : "bad-ink"}">${m.qty > 0 ? "+" : "−"}${fa(Math.abs(m.qty))}</td>
             <td class="small">${m.ref_code ? html`<a href="#/erp/${m.ref_type === "sale" ? "sales" : "purchases"}/${m.ref_id}">${m.ref_code}</a> ` : ""}${m.note || ""}
               ${m.user_name ? html`<span class="muted">، ${m.user_name}</span>` : ""}</td>

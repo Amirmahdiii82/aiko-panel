@@ -1,6 +1,6 @@
-// ERP settings: staff profiles (commission, partner, default account), partners & accounts, channel defaults,
-// categories, and data (Excel export / import). Logins, module access, bot notifications, backups and passwords
-// are core screens (Team, Settings, Profile).
+// ERP settings (Settings → فروشگاه و حسابداری): staff profiles (commission, partner, default account), partners &
+// accounts, channel defaults, categories, and the Excel export. Logins, module access, bot notifications, backups and
+// passwords are other sections of Settings, or the profile page.
 import { $, api, confirmBox, delegate, esc, fa, html, icon, isOwner, parseNum, sheet, toast } from "/static/js/kit.js";
 import { avatar, emptyState, formData, selectOptions } from "/static/js/kit.js";
 import { openAccount } from "./money.js";
@@ -10,16 +10,15 @@ const TABS = [
   { key: "staff", label: "فروشنده‌ها و پورسانت", ico: "users" },
   { key: "partners", label: "شرکا و حساب‌ها", ico: "handshake" },
   { key: "lists", label: "دسته‌ها و کانال‌ها", ico: "tag" },
-  { key: "data", label: "اکسل", ico: "file-spreadsheet" },
+  { key: "data", label: "خروجی اکسل", ico: "file-spreadsheet" },
 ];
 
-export async function render(view, params, { setTitle, base = "#/erp/settings" }) {
+export async function render(view, params, { setTitle, base = "#/settings/erp" }) {
   setTitle("تنظیمات فروشگاه");
   let tab = params[0] || "staff";
   const draw = async () => {
     view.innerHTML = String(html`<div class="stack">
-      <div class="chips scroll">${TABS.map((t) => html`<a class="chip ${t.key === tab ? "on" : ""}" href="${base}/${t.key}">${icon(t.ico, "sm")}${t.label}</a>`)}
-        ${base === "#/erp/settings" && isOwner() ? html`<a class="chip" href="#/settings">${icon("settings", "sm")}تنظیمات مشترک (سایت، پروکسی، ربات، پشتیبان)</a>` : ""}</div>
+      <div class="chips scroll">${TABS.map((t) => html`<a class="chip ${t.key === tab ? "on" : ""}" href="${base}/${t.key}">${icon(t.ico, "sm")}${t.label}</a>`)}</div>
       <div id="tab"><div class="skeleton" style="height:300px"></div></div></div>`);
     const el = $("#tab", view);
     if (tab === "staff") await staffTab(el);
@@ -37,7 +36,7 @@ async function staffTab(el) {
   el.innerHTML = String(html`<div class="grid side">
     <section class="card">
       <div class="card-head"><h2>${icon("users")} افراد با دسترسی به فروشگاه</h2><span class="spacer"></span>
-        ${isOwner() ? html`<a class="btn sm primary" href="#/team">${icon("user-plus", "sm")} کاربر جدید / دسترسی‌ها</a>` : ""}
+        ${isOwner() ? html`<a class="btn sm primary" href="#/settings/team">${icon("user-plus", "sm")} کاربر جدید / دسترسی‌ها</a>` : ""}
         <p>ساخت کاربر، رمز و اینکه هر نفر به کدام بخش‌ها دسترسی دارد در «تیم و دسترسی‌ها» است. اینجا فقط اطلاعات فروشگاهی هر نفر.</p></div>
       <div class="list">${users.map((u) => html`<div class="list-item clickable" data-user="${u.id}">
         ${avatar(u.name)}<div class="grow"><div class="title">${u.name} <span class="muted small ltr">@${u.username}</span></div>
@@ -175,28 +174,14 @@ function listsTab(el) {
 
 // ---------------------------------------------------------------- data
 function dataTab(el) {
-  el.innerHTML = String(html`<div class="grid g3">
+  el.innerHTML = String(html`<div class="grid g2">
     <section class="card"><h2>${icon("file-spreadsheet")} خروجی اکسل</h2>
       <p class="small muted mt8">همه محصولات، فروش‌ها، خریدها، هزینه‌ها و حساب‌ها در یک فایل اکسل (تاریخ‌ها شمسی).</p>
       <a class="btn soft mt16" href="/api/erp/export.xlsx">${icon("download")} دانلود اکسل</a></section>
     <section class="card"><h2>${icon("database")} نسخه پشتیبان</h2>
-      <p class="small muted mt8">پشتیبان همه بخش‌ها هر شب خودکار گرفته می‌شود. دانلود و بازیابی در «تنظیمات سیستم».</p>
-      ${isOwner() ? html`<a class="btn soft mt16" href="#/settings/system">${icon("database")} پشتیبان‌ها</a>` : ""}</section>
-    <section class="card"><h2>${icon("upload")} ورود از اکسل قدیمی</h2>
-      <p class="small muted mt8">فقط وقتی هنوز هیچ محصولی ثبت نشده. فایل «Aiko's Inventory.xlsx» با شیت‌های Products، Sales، Purchases و Expenses.</p>
-      <label class="btn soft mt16">${icon("upload")} انتخاب فایل<input type="file" id="imp" accept=".xlsx" hidden></label>
-      <div id="imp-res" class="small mt12"></div></section>
+      <p class="small muted mt8">پشتیبان همه بخش‌ها هر شب خودکار گرفته می‌شود و هر چند ساعت در کانال تلگرام هم می‌رود.</p>
+      ${isOwner() ? html`<a class="btn soft mt16" href="#/settings/backup">${icon("database")} پشتیبان‌ها</a>` : ""}</section>
   </div>`);
-  $("#imp", el).onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const form = new FormData();
-    form.append("file", file);
-    const r = await api("/api/erp/import-excel", { method: "POST", form });
-    $("#imp-res", el).innerHTML = String(html`<div class="callout ok">${icon("circle-check")}<div>${fa(r.products)} محصول، ${fa(r.sales)} فروش، ${fa(r.purchases)} خرید و ${fa(r.expenses)} هزینه وارد شد.
-      ${r.stock_mismatch.length ? html`<br>اختلاف موجودی: ${r.stock_mismatch.map((m) => `${m.name} (اکسل ${m.excel}، محاسبه ${m.computed})`).join("، ")}` : ""}</div></div>`);
-    refreshMe();
-  };
 }
 
 export { esc, confirmBox, emptyState };

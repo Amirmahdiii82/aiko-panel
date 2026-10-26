@@ -54,8 +54,9 @@ def logout(request: Request):
 
 
 def _module_info(user: dict) -> list[dict]:
-    return [{"id": m.id, "name": m.name, "icon": m.icon, "description": m.description, "role": user["modules"][m.id],
-             "roles": m.roles, "web": f"/m/{m.id}/index.js" if m.web_dir else None}
+    return [{"id": m.id, "name": m.name, "short": m.short or m.name, "icon": m.icon, "description": m.description,
+             "role": user["modules"][m.id], "roles": m.roles, "settings": m.may_configure(user, user["modules"][m.id]),
+             "web": f"/m/{m.id}/index.js" if m.web_dir else None}
             for m in modules.values() if m.id in user["modules"]]
 
 

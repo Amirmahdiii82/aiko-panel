@@ -9,7 +9,7 @@ export async function render(view, params, { setTitle }) {
   const stop = () => clearTimeout(timer);
 
   const list = async () => {
-    setTitle("قیمت‌گذاری محصول جدید", "محصولی که هنوز نمی‌فروشید را بنویسید؛ در همه رقبا جستجو می‌کنیم و قیمت فروش پیشنهاد می‌دهیم");
+    setTitle("قیمت‌گذاری جدید", "محصولی که هنوز نمی‌فروشید را بنویسید؛ در همه رقبا جستجو می‌کنیم و قیمت فروش پیشنهاد می‌دهیم");
     const data = await api("/api/pricing/newproducts");
     view.innerHTML = String(html`<div class="stack pricing">
       ${canEdit() ? html`<form class="card" id="npForm">
@@ -86,7 +86,7 @@ export async function render(view, params, { setTitle }) {
         <button class="btn soft" id="npSave">ذخیره</button></div>
         <div class="offer-meta mt12">${Object.entries(d.site_status || {}).map(([k, st]) => html`<span title="${st.error || ""}">${siteName(k)}: ${siteBadge(st)}</span>`)}</div></section>` : ""}
       ${advice}
-      ${sm.strategies.length ? html`<div class="grid g3">${sm.strategies.map((x) => html`<button class="kpi ${x.key === sm.recommended ? "orchid" : "indigo"} ${x.key === chosen?.key ? "on" : ""}" data-strategy="${x.key}">
+      ${sm.strategies.length ? html`<div class="grid g3">${sm.strategies.map((x) => html`<button class="kpi ${x.key === sm.recommended ? "hero" : ""} ${x.key === chosen?.key ? "on" : ""}" data-strategy="${x.key}">
         <span class="k-label">${x.key === sm.recommended ? icon("star", "sm") : ""}${x.label}</span>
         <span class="k-value num">${n(x.price)}</span>
         <span class="k-foot">${x.rank === 1 ? "ارزان‌ترین بازار" : `رتبه ${n(x.rank)} از ${n(x.of)}`} · ${x.hint}</span>

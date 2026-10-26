@@ -6,7 +6,9 @@ The core mounts what a module declares and nothing else:
   web_dir     → /m/<id>/...      (index.js is the module's frontend entry: nav + pages)
   databases   → migrated on start, included in backups and health checks
   startup     → async hook run once the app is up (start workers, register scheduled jobs)
+  short       → a short name for tight places (the phone bar); defaults to the name
   roles       → what can be granted to a non-admin user, highest first
+  settings_role → who may change the module's settings (Settings → <module>): "" = its top role, None = owners only
   notify      → bot notification kinds the owner can toggle (kind → label)
   summary     → small dict for the unified home page, computed for one user
   event_filter→ which live events a user of this module may receive
@@ -35,7 +37,9 @@ class Module:
     name: str
     icon: str
     description: str = ""
+    short: str = ""
     roles: dict[str, str] = field(default_factory=dict)
+    settings_role: str | None = ""
     router: APIRouter | None = None
     web_dir: Path | None = None
     databases: list[Database] = field(default_factory=list)
@@ -56,6 +60,14 @@ class Module:
         """0 = highest. Unknown roles rank below every declared one."""
         names = list(self.roles)
         return names.index(role) if role in names else len(names)
+
+    def may_configure(self, user: dict, role: str | None) -> bool:
+        """Owners change every module's settings; otherwise `settings_role` (or higher) in this module."""
+        if user.get("is_admin"):
+            return True
+        if self.settings_role is None or role not in self.roles:
+            return False
+        return self.role_rank(role) <= self.role_rank(self.settings_role or self.top_role)
 
 
 loaded: dict[str, Module] = {}

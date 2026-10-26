@@ -8,15 +8,9 @@ export default {
   nav: () => [
     { href: "", label: "نمای کلی", ico: "layout-dashboard" },
     { href: "products", label: "محصولات", ico: "package" },
-    { href: "new", label: "قیمت‌گذاری محصول جدید", ico: "tag" },
+    { href: "new", label: "قیمت‌گذاری جدید", ico: "tag" },
     { href: "review", label: "تأیید تطبیق‌ها", ico: "check-check" },
-    { href: "sites", label: "رقبا و اجراها", ico: "store" },
-  ],
-  mobile: () => [
-    { href: "", label: "نمای کلی", ico: "layout-dashboard" },
-    { href: "products", label: "محصولات", ico: "package" },
-    { href: "new", label: "جدید", ico: "plus", fab: true },
-    { href: "review", label: "تأیید", ico: "check-check" },
+    { href: "sites", label: "رقبا", ico: "store" },
   ],
   action: (role) => (role === "editor" ? { label: "بروزرسانی قیمت‌ها", ico: "refresh-cw", onClick: () => startCrawl() } : null),
   pages: {
@@ -26,13 +20,14 @@ export default {
     review: () => import("./pages/review.js"),
     sites: () => import("./pages/sites.js"),
   },
+  settings: () => import("./pages/settings.js"),
   enter: async () => {
     wireLive();
     await refreshMeta();
     refreshReviewCount();
     setTimeout(syncAction, 0);
   },
-  quick: (role) => (role === "editor" ? [{ href: "#/pricing/new", label: "قیمت‌گذاری محصول", ico: "tag", tone: "indigo" }] : []),
+  quick: (role) => (role === "editor" ? [{ href: "#/pricing/new", label: "قیمت‌گذاری محصول", ico: "tag" }] : []),
 
   /** The unified home page: key numbers and what needs attention. */
   glance(d) {

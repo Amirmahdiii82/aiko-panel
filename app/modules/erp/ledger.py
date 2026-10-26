@@ -333,7 +333,7 @@ def _items_summary(items: list[dict], stocks: dict[int, int]) -> str:
     return "\n".join(lines)
 
 
-def create_sale(con, data: dict, user: dict | None, *, quiet: bool = False, legacy: bool = False) -> int:
+def create_sale(con, data: dict, user: dict | None, *, quiet: bool = False) -> int:
     items_in = data.get("items") or []
     if not items_in:
         raise LedgerError("حداقل یک محصول به فروش اضافه کنید")
@@ -378,7 +378,7 @@ def create_sale(con, data: dict, user: dict | None, *, quiet: bool = False, lega
         raise LedgerError("تخفیف از مبلغ فروش بیشتر است")
     cogs = sum(i["qty"] * i["unit_cost"] for i in items)
     commission = 0
-    if seller and seller["commission_pct"] and not legacy:
+    if seller and seller["commission_pct"]:
         commission = int(round((subtotal - discount) * seller["commission_pct"] / 100))
     account_id = data.get("account_id") or None
     paid = 1 if data.get("paid", True) else 0

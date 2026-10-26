@@ -1,7 +1,7 @@
 // Service worker: makes the panel installable and keeps the shell (CSS/JS/fonts) available offline.
 // API calls and uploaded/generated files always go to the network so numbers are never stale.
 const CACHE = "aiko-panel-__V__";
-const SHELL = ["/", "/static/css/clay.css?v=__V__", "/static/js/app.js?v=__V__", "/static/vendor/chart.umd.min.js?v=__V__",
+const SHELL = ["/", "/static/css/ui.css?v=__V__", "/static/js/app.js?v=__V__", "/static/vendor/chart.umd.min.js?v=__V__",
   "/static/fonts/Vazirmatn-Regular.woff2", "/static/fonts/Vazirmatn-Medium.woff2", "/static/fonts/Vazirmatn-Bold.woff2",
   "/static/img/logo.png"];
 

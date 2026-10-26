@@ -1,9 +1,9 @@
-// Unified home: deliberately quiet. The greeting and today's headline sit in the top bar; below it, the few things
-// people actually do from here (quick actions), the four numbers that matter, one list of what needs attention from
-// every module (and unfinished setup, for owners), and the latest activity folded away until someone opens it.
+// Home: the whole business on one calm screen. Quick actions, the four numbers that matter (the first one dark),
+// one list of what needs attention from every module (and, for owners, unfinished setup — each links to its section
+// in Settings), and the latest activity beside it.
 // Modules feed it through `glance(data, role)` → { headline?, stats?: [...], alerts?: [...] } (see ARCHITECTURE.md).
-import { $, api, delegate, emptyState, fa, feedItem, html, icon, isOwner, jdate, on, state } from "../kit.js";
-import { ITEMS, openSetup } from "../setup.js";
+import { $, api, delegate, emptyState, fa, feedItem, html, icon, isOwner, jdate, kpi, on, state, todoBadge, todoList } from "../kit.js";
+import { ITEMS } from "../setup.js";
 
 export async function render(view, params, { setTitle }) {
   const me = state.me;
@@ -16,21 +16,22 @@ export async function render(view, params, { setTitle }) {
   const quick = mods.flatMap((m) => (m.def.quick ? m.def.quick(m.info.role) : []));
 
   view.innerHTML = String(html`<div class="home">
-    ${quick.length ? html`<nav class="actions" aria-label="کارهای سریع">${quick.slice(0, 5).map((q) => html`<a class="action" href="${q.href}">
-      <span class="a-ico ${q.tone || "indigo"}">${icon(q.ico)}</span><span>${q.label}</span></a>`)}</nav>` : ""}
-    <section class="stat-strip" id="stats" aria-label="آمار"><div class="skeleton" style="height:64px;width:100%"></div></section>
-    <section class="card">
-      <div class="card-head"><h2>${icon("list-checks")} نیاز به توجه</h2><span id="todo-count"></span></div>
-      <div class="todo" id="todo"><div class="skeleton" style="height:120px"></div></div>
-    </section>
-    <details class="fold">
-      <summary>${icon("history")} آخرین رویدادها<span class="spacer"></span>${icon("chevron-down", "sm f-chev")}</summary>
-      <div class="fold-body"><div class="feed" id="feed"></div>
-        <a class="btn xs ghost" href="#/activity">همه رویدادها ${icon("chevron-left", "sm")}</a></div>
-    </details>
-    ${!mods.length ? emptyState("lock", "هنوز به بخشی دسترسی ندارید", "از مدیر بخواهید در «تیم و دسترسی‌ها» برایتان دسترسی فعال کند.") : ""}
+    ${quick.length ? html`<nav class="quick" aria-label="کارهای سریع">${quick.slice(0, 5).map((q) => html`<a href="${q.href}">
+      <span class="q-ico">${icon(q.ico)}</span><span>${q.label}</span></a>`)}</nav>` : ""}
+    <section class="grid g4" id="stats" aria-label="آمار">${[0, 1, 2, 3].map(() => html`<div class="skeleton" style="height:128px"></div>`)}</section>
+    <div class="home-cols">
+      <section class="card">
+        <div class="card-head"><h2>${icon("list-checks")} نیاز به توجه</h2><span class="spacer"></span><span id="todo-count"></span></div>
+        <div id="todo"><div class="skeleton" style="height:120px"></div></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>${icon("history")} آخرین رویدادها</h2><span class="spacer"></span>
+          <a class="btn xs ghost" href="#/activity">همه ${icon("chevron-left", "sm")}</a></div>
+        <div class="feed" id="feed"><div class="skeleton" style="height:160px"></div></div>
+      </section>
+    </div>
+    ${!mods.length ? emptyState("lock", "هنوز به بخشی دسترسی ندارید", "از مدیر بخواهید در «تنظیمات ← تیم و دسترسی‌ها» برایتان دسترسی فعال کند.") : ""}
   </div>`);
-  delegate(view, "click", "[data-setup]", (e, el) => { e.preventDefault(); openSetup(el.dataset.setup, () => loadTodo()); });
 
   let glances = [];
   const loadGlances = async () => {
@@ -48,15 +49,10 @@ export async function render(view, params, { setTitle }) {
     const el = $("#stats", view);
     if (!el) return;
     el.hidden = !stats.length;
-    el.innerHTML = String(html`${stats.map((s) => html`<a class="stat ${s.tone || ""}" ${s.href ? html`href="${s.href}"` : ""}>
-      <span class="s-label">${s.label}</span><b class="s-value num">${s.value}</b><span class="s-unit">${s.unit || ""}</span></a>`)}`);
+    el.innerHTML = String(html`${stats.map((s, i) => kpi({ ...s, hero: i === 0, tone: i ? s.tone : "" }))}`);
   };
   let setup = null;
   const loadSetup = async () => { setup = isOwner() ? await api("/api/setup", { quiet: true }).catch(() => null) : null; };
-  const loadTodo = async () => {
-    await loadSetup();
-    drawTodo();
-  };
   const drawTodo = () => {
     const el = $("#todo", view);
     if (!el) return;
@@ -70,28 +66,26 @@ export async function render(view, params, { setTitle }) {
       items.push({ tone: "warn", ico: "folder", text: `${fa(du.errors + du.held)} رسید به گوگل درایو نرفته`,
         sub: du.held ? "سقف فضای رسیدها پر شده" : "ارسال ناموفق بود", href: "#/settings/drive" });
     }
+    if (setup?.backup?.enabled && setup.backup.last_ok === false) {
+      items.push({ tone: "bad", ico: "database", text: "پشتیبان کانال تلگرام ارسال نشد", sub: setup.backup.last_error, href: "#/settings/backup" });
+    }
     if (setup) {
       for (const it of ITEMS.filter((i) => !i.optional && !setup[i.key]?.ok)) {
-        items.push({ tone: "warn", ico: it.ico, text: `${it.title} تنظیم نشده`, sub: it.need, setup: it.key });
+        items.push({ tone: "warn", ico: it.ico, text: `${it.title} تنظیم نشده`, sub: it.need, href: `#/settings/${it.section}` });
       }
     }
-    const order = { bad: 0, warn: 1, info: 2, ok: 3 };
-    items.sort((a, b) => (order[a.tone] ?? 2) - (order[b.tone] ?? 2));
-    $("#todo-count", view).innerHTML = items.length ? String(html`<span class="badge ${items.some((i) => i.tone === "bad") ? "bad" : "warn"}">${fa(items.length)}</span>`) : "";
-    el.innerHTML = items.length ? String(html`${items.map((a) => html`<a class="todo-item" href="${a.href || "#/settings"}" ${a.setup ? html`data-setup="${a.setup}"` : ""}>
-        <span class="t-ico ${a.tone || "info"}">${icon(a.ico || "info", "sm")}</span>
-        <span class="grow"><span class="t-text">${a.text}</span>${a.sub ? html`<span class="t-sub">${a.sub}</span>` : ""}</span>
-        ${icon("chevron-left", "sm")}</a>`)}`)
-      : String(html`<div class="todo-clear">${icon("circle-check")}<div><b>همه چیز مرتب است</b><p class="small muted">موردی برای رسیدگی نیست.</p></div></div>`);
+    $("#todo-count", view).innerHTML = String(todoBadge(items));
+    el.innerHTML = String(todoList(items));
   };
   const loadFeed = async () => {
-    const items = await api("/api/activity?limit=6", { quiet: true }).catch(() => []);
+    const items = await api("/api/activity?limit=7", { quiet: true }).catch(() => []);
     const feed = $("#feed", view);
     if (feed) feed.innerHTML = items.length ? String(html`${items.map((a) => feedItem(a, { showModule: true }))}`)
       : String(emptyState("history", "هنوز رویدادی نیست"));
   };
   await Promise.all([loadGlances(), loadSetup(), loadFeed()]);
   drawTodo();
+  delegate(view, "click", ".feed-item[data-link]", (e, el) => { if (el.dataset.link) location.hash = el.dataset.link; });
 
   let timer;
   const off = on("live", (ev) => {

@@ -34,15 +34,6 @@ def settings() -> dict:
             "monthly_limit_usd": float(s.get("monthly_limit_usd") or 0)}
 
 
-def adopt_legacy() -> None:
-    """The key and proxy used to be studio settings; hand them to the shared connections once."""
-    s = db.database.get_setting("openrouter", {}) or {}
-    integrations.adopt("openrouter", {"api_key": s.get("api_key") or core_config.env("OPENROUTER_API_KEY")})
-    integrations.adopt("network", {"proxy_url": s.get("proxy_url") or core_config.env("OPENROUTER_PROXY_URL")})
-    if s.get("api_key") or s.get("proxy_url"):
-        db.database.set_setting("openrouter", {k: v for k, v in s.items() if k not in ("api_key", "proxy_url")})
-
-
 def configured() -> bool:
     return bool(settings()["api_key"])
 

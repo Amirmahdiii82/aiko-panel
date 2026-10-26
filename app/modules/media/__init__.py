@@ -8,7 +8,6 @@ from .router import router
 
 
 async def startup() -> None:
-    openrouter.adopt_legacy()
     service.recover_on_start()
     jobs.every("media.poll", 15, service.poll_due)
 
@@ -26,6 +25,8 @@ def summary(user: dict) -> dict:
 module = Module(
     id="media",
     name="استودیو محتوا",
+    short="استودیو",
+    settings_role=None,            # the monthly spending cap is the owners' call
     icon="clapperboard",
     description="ساخت ویدیو و تصویر تبلیغاتی با هوش مصنوعی و کتابخانه مشترک",
     roles={"creator": "سازنده (هزینه‌بر)", "viewer": "فقط مشاهده"},

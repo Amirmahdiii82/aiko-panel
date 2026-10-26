@@ -19,6 +19,9 @@ def period_bounds(period: str, start: str | None = None, end: str | None = None)
     jy, jm, _ = _jalali_today()
     if period == "custom" and start and end:
         return start, end, "بازه دلخواه"
+    if period == "30d":
+        s, e, _, _ = recent_bounds(30)
+        return s, e, RECENT_LABEL
     if period == "last_month":
         y, m = (jy, jm - 1) if jm > 1 else (jy - 1, 12)
         s, e = jalali.month_bounds(y, m)
@@ -39,15 +42,25 @@ def period_bounds(period: str, start: str | None = None, end: str | None = None)
     return s, e, f"{jalali.MONTHS[jm - 1]} {ledger.fa(jy)}"
 
 
-def _sales_totals(con, start: str, end: str) -> dict:
+def _chan(channel: str, col: str = "channel") -> tuple[str, tuple]:
+    """The SQL and arguments that narrow a sales query to one channel ("" = every channel)."""
+    return (f" AND {col} = ?", (channel,)) if channel else ("", ())
+
+
+def _sales_totals(con, start: str, end: str, channel: str = "") -> dict:
+    """Sales of a date range (one channel, or all). Running expenses belong to the whole shop, so a single channel's
+    net profit is its gross profit minus nothing: the caller shows gross for a channel."""
+    only, extra = _chan(channel)
     r = con.execute(
-        """SELECT COUNT(*) AS orders, IFNULL(SUM(total), 0) AS revenue, IFNULL(SUM(cogs), 0) AS cogs,
+        f"""SELECT COUNT(*) AS orders, IFNULL(SUM(total), 0) AS revenue, IFNULL(SUM(cogs), 0) AS cogs,
                   IFNULL(SUM(discount), 0) AS discount, IFNULL(SUM(shipping), 0) AS shipping,
                   IFNULL(SUM(CASE WHEN paid = 0 THEN total ELSE 0 END), 0) AS unpaid
-           FROM sales WHERE status = 'done' AND date BETWEEN ? AND ?""", (start, end)).fetchone()
-    items = con.execute("""SELECT IFNULL(SUM(i.qty), 0) FROM sale_items i JOIN sales s ON s.id = i.sale_id
-                           WHERE s.status = 'done' AND s.date BETWEEN ? AND ?""", (start, end)).fetchone()[0]
-    expenses = con.execute("""SELECT IFNULL(SUM(amount), 0) FROM expenses
+           FROM sales WHERE status = 'done' AND date BETWEEN ? AND ?{only}""", (start, end, *extra)).fetchone()
+    s_only, _ = _chan(channel, "s.channel")
+    items = con.execute(f"""SELECT IFNULL(SUM(i.qty), 0) FROM sale_items i JOIN sales s ON s.id = i.sale_id
+                           WHERE s.status = 'done' AND s.date BETWEEN ? AND ?{s_only}""",
+                        (start, end, *extra)).fetchone()[0]
+    expenses = 0 if channel else con.execute("""SELECT IFNULL(SUM(amount), 0) FROM expenses
                               WHERE is_inventory = 0 AND date BETWEEN ? AND ?""", (start, end)).fetchone()[0]
     revenue, cogs = int(r["revenue"]), float(r["cogs"])
     gross = revenue - cogs
@@ -66,10 +79,11 @@ def _previous_range(start: str, end: str) -> tuple[str, str]:
     return (s - timedelta(days=length)).isoformat(), (s - timedelta(days=1)).isoformat()
 
 
-def monthly_series(con, start: str, end: str, max_months: int = 12) -> list[dict]:
+def monthly_series(con, start: str, end: str, max_months: int = 12, channel: str = "") -> list[dict]:
     months: dict[str, dict] = {}
-    for r in con.execute("""SELECT date, total, cogs FROM sales WHERE status = 'done' AND date BETWEEN ? AND ?""",
-                         (start, end)):
+    only, extra = _chan(channel)
+    for r in con.execute(f"""SELECT date, total, cogs FROM sales WHERE status = 'done' AND date BETWEEN ? AND ?{only}""",
+                         (start, end, *extra)):
         m = months.setdefault(jalali.jalali_month_key(r["date"]), {"revenue": 0, "cogs": 0.0, "expenses": 0})
         m["revenue"] += r["total"]
         m["cogs"] += r["cogs"]
@@ -86,10 +100,11 @@ def monthly_series(con, start: str, end: str, max_months: int = 12) -> list[dict
     return out
 
 
-def daily_series(con, start: str, end: str) -> list[dict]:
+def daily_series(con, start: str, end: str, channel: str = "") -> list[dict]:
+    only, extra = _chan(channel)
     days = {r["date"]: r for r in con.execute(
-        """SELECT date, SUM(total) AS revenue, COUNT(*) AS orders FROM sales
-           WHERE status = 'done' AND date BETWEEN ? AND ? GROUP BY date""", (start, end))}
+        f"""SELECT date, SUM(total) AS revenue, COUNT(*) AS orders FROM sales
+           WHERE status = 'done' AND date BETWEEN ? AND ?{only} GROUP BY date""", (start, end, *extra))}
     s, e = date.fromisoformat(start), min(date.fromisoformat(end), date.fromisoformat(db.today()))
     out = []
     while s <= e:
@@ -98,6 +113,23 @@ def daily_series(con, start: str, end: str) -> list[dict]:
         out.append({"date": iso, "revenue": int(r["revenue"]) if r else 0, "orders": r["orders"] if r else 0})
         s += timedelta(days=1)
     return out
+
+
+def product_sales(con, start: str, end: str, channel: str = "", *, order: str = "profit DESC",
+                  limit: int | None = None) -> list[dict]:
+    """What each product sold in a date range: units, revenue after discounts, profit and margin."""
+    only, extra = _chan(channel, "s.channel")
+    rows = db.rows(con.execute(
+        f"""SELECT i.product_id, IFNULL(p.name, i.name) AS name, p.image, SUM(i.qty) AS qty,
+                   SUM(i.line_total - i.discount) AS revenue, SUM(i.line_total - i.discount - i.qty * i.unit_cost) AS profit
+            FROM sale_items i JOIN sales s ON s.id = i.sale_id LEFT JOIN products p ON p.id = i.product_id
+            WHERE s.status = 'done' AND s.date BETWEEN ? AND ?{only}
+            GROUP BY IFNULL(i.product_id, i.name) ORDER BY {order}{f" LIMIT {int(limit)}" if limit else ""}""",
+        (start, end, *extra)))
+    for p in rows:
+        p["profit"] = int(round(p["profit"] or 0))
+        p["margin"] = (p["profit"] / p["revenue"]) if p["revenue"] else 0
+    return rows
 
 
 def report(con, start: str, end: str, label: str = "") -> dict:
@@ -121,15 +153,7 @@ def report(con, start: str, end: str, label: str = "") -> dict:
            WHERE s.status = 'done' AND s.date BETWEEN ? AND ? GROUP BY 1 ORDER BY revenue DESC""",
         (start, end)))
 
-    products = db.rows(con.execute(
-        """SELECT i.product_id, IFNULL(p.name, i.name) AS name, p.image, SUM(i.qty) AS qty,
-                  SUM(i.line_total - i.discount) AS revenue, SUM(i.line_total - i.discount - i.qty * i.unit_cost) AS profit
-           FROM sale_items i JOIN sales s ON s.id = i.sale_id LEFT JOIN products p ON p.id = i.product_id
-           WHERE s.status = 'done' AND s.date BETWEEN ? AND ?
-           GROUP BY IFNULL(i.product_id, i.name) ORDER BY profit DESC""", (start, end)))
-    for p in products:
-        p["profit"] = int(round(p["profit"] or 0))
-        p["margin"] = (p["profit"] / p["revenue"]) if p["revenue"] else 0
+    products = product_sales(con, start, end)
 
     expense_cats = db.rows(con.execute(
         """SELECT category, SUM(amount) AS amount, COUNT(*) AS n FROM expenses
@@ -158,7 +182,7 @@ def report(con, start: str, end: str, label: str = "") -> dict:
     }
 
 
-def inventory_stats(con) -> dict:
+def inventory_stats(con, *, slow: bool = True) -> dict:
     r = con.execute(
         """SELECT IFNULL(SUM(CASE WHEN stock > 0 THEN stock * avg_cost END), 0) AS cost_value,
                   IFNULL(SUM(CASE WHEN stock > 0 THEN stock * price END), 0) AS retail_value,
@@ -167,8 +191,14 @@ def inventory_stats(con) -> dict:
                   SUM(CASE WHEN stock > 0 AND stock <= low_stock THEN 1 ELSE 0 END) AS low_count,
                   COUNT(*) AS products
            FROM products WHERE active = 1""").fetchone()
+    cost_value, retail = float(r["cost_value"]), float(r["retail_value"])
+    stats = {"cost_value": int(round(cost_value)), "retail_value": int(round(retail)),
+             "potential_profit": int(round(retail - cost_value)), "units": int(r["units"]),
+             "out_count": r["out_count"] or 0, "low_count": r["low_count"] or 0, "products": r["products"]}
+    if not slow:                                   # products that stopped selling (reports page only)
+        return stats
     cutoff = (date.fromisoformat(db.today()) - timedelta(days=45)).isoformat()
-    slow = db.rows(con.execute(
+    stats["slow"] = db.rows(con.execute(
         """SELECT p.id, p.name, p.stock, p.avg_cost, p.image, p.stock * p.avg_cost AS tied,
                   (SELECT MAX(s.date) FROM sale_items i JOIN sales s ON s.id = i.sale_id
                     WHERE i.product_id = p.id AND s.status = 'done') AS last_sale
@@ -177,14 +207,11 @@ def inventory_stats(con) -> dict:
              AND NOT EXISTS (SELECT 1 FROM sale_items i JOIN sales s ON s.id = i.sale_id
                              WHERE i.product_id = p.id AND s.status = 'done' AND s.date >= ?)
            ORDER BY tied DESC LIMIT 8""", (cutoff + "T23:59:59", cutoff)))
-    cost_value, retail = float(r["cost_value"]), float(r["retail_value"])
-    return {"cost_value": int(round(cost_value)), "retail_value": int(round(retail)),
-            "potential_profit": int(round(retail - cost_value)), "units": int(r["units"]),
-            "out_count": r["out_count"] or 0, "low_count": r["low_count"] or 0, "products": r["products"],
-            "slow": slow}
+    return stats
 
 
-RECENT_LABEL = "۳۰ روز اخیر"
+DASHBOARD_PERIODS = {7: "۷ روز اخیر", 30: "۳۰ روز اخیر", 90: "۹۰ روز اخیر", 365: "۱۲ ماه اخیر"}
+RECENT_LABEL = DASHBOARD_PERIODS[30]
 
 
 def recent_bounds(days: int = 30) -> tuple[str, str, str, str]:
@@ -195,41 +222,65 @@ def recent_bounds(days: int = 30) -> tuple[str, str, str, str]:
             (start - timedelta(days=days)).isoformat(), (start - timedelta(days=1)).isoformat())
 
 
-def dashboard(con, user: dict) -> dict:
+def _months_back(n: int) -> list[tuple[int, int]]:
+    """The last `n` Jalali months up to this one, oldest first."""
+    jy, jm, _ = _jalali_today()
+    last = jy * 12 + jm - 1
+    return [(k // 12, k % 12 + 1) for k in range(last - n + 1, last + 1)]
+
+
+def dashboard_bounds(days: int) -> tuple[str, str, str, str]:
+    """This period and the one before. A year is the last 12 Jalali months (this one so far) against the 12 before,
+    so the numbers and the monthly chart cover exactly the same days; shorter periods are rolling days."""
+    if days < 365:
+        return recent_bounds(days)
+    months = _months_back(24)
+    return (jalali.month_bounds(*months[12])[0], db.today(), jalali.month_bounds(*months[0])[0],
+            jalali.month_bounds(*months[11])[1])
+
+
+def trend(con, days: int, channel: str = "") -> dict:
+    """Revenue over the period next to the period before it, point by point: days for up to 90 days, Jalali months
+    for a year."""
+    s, e, ps, pe = dashboard_bounds(days)
+    if days >= 365:
+        revenue = {m["key"]: m["revenue"] for m in monthly_series(con, ps, e, 24, channel)}
+        months = [jalali.jalali_month_key(jalali.month_bounds(y, m)[0]) for y, m in _months_back(24)]
+        return {"unit": "month", "labels": [jalali.MONTHS[m - 1] for _, m in _months_back(12)],
+                "current": [revenue.get(k, 0) for k in months[12:]], "previous": [revenue.get(k, 0) for k in months[:12]]}
+    cur, prev = daily_series(con, s, e, channel), daily_series(con, ps, pe, channel)
+    return {"unit": "day", "labels": [d["date"] for d in cur], "current": [d["revenue"] for d in cur],
+            "previous": [d["revenue"] for d in prev][:len(cur)]}
+
+
+def dashboard(con, user: dict, days: int = 30, channel: str = "") -> dict:
+    days = days if days in DASHBOARD_PERIODS else 30
+    channel = channel if channel in ledger.CHANNELS else ""
     today = db.today()
-    ms, me, prev_s, prev_e = recent_bounds()
-    recent_sales = _sales_totals(con, ms, me)
-    prev = _sales_totals(con, prev_s, prev_e)
-    today_row = con.execute("""SELECT COUNT(*), IFNULL(SUM(total), 0) FROM sales
-                               WHERE status = 'done' AND date = ?""", (today,)).fetchone()
-    start30 = ms
-    sync_errors = con.execute("""SELECT COUNT(*) FROM products WHERE active = 1 AND woo_id IS NOT NULL
-                                 AND woo_state IN ('error', 'gone')""").fetchone()[0]
-    pending = con.execute("""SELECT COUNT(*) FROM products WHERE active = 1 AND woo_id IS NOT NULL
-                             AND woo_state = 'pending'""").fetchone()[0]
-    nocount = con.execute("""SELECT COUNT(*) FROM products WHERE active = 1 AND woo_id IS NOT NULL
-                             AND woo_state = 'nocount'""").fetchone()[0]
-    unlinked = con.execute("SELECT COUNT(*) FROM products WHERE active = 1 AND woo_id IS NULL").fetchone()[0]
+    ms, me, prev_s, prev_e = dashboard_bounds(days)
+    today_sales = daily_series(con, today, today, channel)[0]
+    site = con.execute(
+        """SELECT SUM(CASE WHEN woo_id IS NOT NULL AND woo_state IN ('error', 'gone') THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'nocount' THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN woo_id IS NOT NULL AND woo_state = 'whole' THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN woo_id IS NULL THEN 1 ELSE 0 END)
+           FROM products WHERE active = 1""").fetchone()
     channels = db.rows(con.execute(
         """SELECT channel, COUNT(*) AS orders, SUM(total) AS revenue FROM sales
            WHERE status = 'done' AND date BETWEEN ? AND ? GROUP BY channel ORDER BY revenue DESC""", (ms, me)))
     for c in channels:
         c["label"] = ledger.CHANNELS.get(c["channel"], c["channel"])
-    recent = db.rows(con.execute(
-        """SELECT a.*, u.name AS user_name FROM core.activity a LEFT JOIN users u ON u.id = a.user_id
-           WHERE a.module = 'erp' ORDER BY a.id DESC LIMIT 15"""))
     from .site import client
-    woo = client.settings()
     return {
-        "today": {"orders": today_row[0], "revenue": int(today_row[1])},
-        "period": recent_sales, "period_label": RECENT_LABEL, "prev_period": prev,
-        "daily": daily_series(con, start30, today),
-        "channels": channels,
-        "inventory": inventory_stats(con),
+        "days": days, "channel": channel, "periods": DASHBOARD_PERIODS, "channel_names": ledger.CHANNELS,
+        "today": {"orders": today_sales["orders"], "revenue": today_sales["revenue"]},
+        "period": _sales_totals(con, ms, me, channel), "period_label": DASHBOARD_PERIODS[days],
+        "prev_period": _sales_totals(con, prev_s, prev_e, channel),
+        "trend": trend(con, days, channel),
+        "channels": channels, "top_products": product_sales(con, ms, me, channel, order="qty DESC, revenue DESC", limit=5),
+        "inventory": inventory_stats(con, slow=False),
         "money": ledger.summary_money(con),
         "partners": ledger.partner_positions(con),
-        "site": {"configured": client.configured(woo),
-                 "errors": sync_errors, "pending": pending, "unlinked": unlinked, "nocount": nocount,
-                 "last_order_sync": woo.get("last_order_sync")},
-        "recent": recent,
+        "site": {"configured": client.configured(), "errors": site[0] or 0, "nocount": site[1] or 0,
+                 "whole": site[2] or 0, "unlinked": site[3] or 0},
     }

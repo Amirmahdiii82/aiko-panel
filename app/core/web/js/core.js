@@ -235,7 +235,7 @@ export function toast(message, type = "success", { action, timeout = 4200 } = {}
 }
 
 const openSheets = [];
-const isPhone = () => window.matchMedia("(max-width: 900px)").matches;
+export const isPhone = () => window.matchMedia("(max-width: 900px)").matches;
 /** Open a dialog. body may be html`` or a string. Returns { root, close }. */
 export function sheet({ title = "", body = "", foot = "", size = "", side = false, onClose, focus = true } = {}) {
   const opener = document.activeElement;
@@ -399,12 +399,39 @@ export function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+// ---------------------------------------------------------------- light / dark (theme.js sets the first one)
+export const isDark = () => document.documentElement.dataset.theme === "dark";
+window.addEventListener("aiko-theme", () => emit("theme"));          // the system theme changed (no saved choice)
+/** Light ↔ dark, remembered on this device. Where view transitions exist, the new theme spreads in a circle from
+ *  `from` (the button that was pressed). Listeners of "theme" (charts, the theme button) redraw. */
+export function toggleTheme(from) {
+  const root = document.documentElement;
+  const next = isDark() ? "light" : "dark";
+  const apply = () => {
+    root.dataset.theme = next;
+    try { localStorage.setItem("aiko-theme", next); } catch (e) { /* private mode */ }      // plain string: theme.js reads it
+    window.aikoSyncThemeColor?.();
+    emit("theme");
+  };
+  if (!document.startViewTransition || reducedMotion()) return apply();
+  const r = from?.getBoundingClientRect?.() || { left: innerWidth / 2, top: 0, width: 0, height: 0 };
+  const x = r.left + r.width / 2, y = r.top + r.height / 2;
+  const end = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+  document.startViewTransition(apply).ready.then(() => {
+    root.animate({ clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${end}px at ${x}px ${y}px)`] },
+      { duration: 560, easing: "cubic-bezier(0.23, 1, 0.32, 1)", pseudoElement: "::view-transition-new(root)" });
+  }).catch(() => {});
+}
+
 // ---------------------------------------------------------------- who is signed in
 /** Owner of the business: every module plus team and system settings. */
 export const isOwner = () => !!(state.me && state.me.user.is_admin);
 /** The user's role in a module ("admin", "seller", "editor", ...) or undefined without access. */
 export const moduleRole = (id) => state.me && state.me.user.modules[id];
 export const hasModule = (id) => moduleRole(id) !== undefined;
+/** Does this person get the module's section in Settings? The module ships a settings page and the server says this
+ *  person may change it (Module.settings_role: owners always). `m` is a state.registry entry. */
+export const moduleSettingsAllowed = (m) => !!(m?.def?.settings && m.info.settings);
 /** Display name of a module id ("core" = system events). */
 export function moduleName(id) {
   if (!id || id === "core") return "سیستم";

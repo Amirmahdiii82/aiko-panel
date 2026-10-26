@@ -60,7 +60,7 @@ function table(items, total) {
       <th>اختلاف با ارزان‌ترین</th><th>بازه قیمت بازار</th><th>جایگاه</th></tr></thead><tbody>
     ${items.map((r) => html`<tr class="clickable" data-pid="${r.id}">
       <td><div class="prod-cell">${img(r.image)}<div style="min-width:0"><div class="name">${r.name}</div>
-        <div class="meta">${r.brand || ""}${r.n_pending ? html` · <span class="badge orchid">${n(r.n_pending)} منتظر تأیید</span>` : ""}</div></div></div></td>
+        <div class="meta">${r.brand || ""}${r.n_pending ? html` · <span class="badge warn">${n(r.n_pending)} منتظر تأیید</span>` : ""}</div></div></div></td>
       <td class="n"><b>${n(r.my_price)}</b>${!r.in_stock ? html`<div class="small muted">ناموجود</div>` : ""}</td>
       <td class="n">${r.min ? html`${n(r.min)}<div class="small muted">${siteName(r.cheapest_site)}</div>` : "—"}</td>
       <td class="n">${n(r.median)}<div class="small muted">${r.n_sites ? `${n(r.n_sites)} سایت · ${n(r.n_listings)} فروشنده` : ""}</div></td>

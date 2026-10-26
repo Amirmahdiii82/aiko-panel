@@ -5,13 +5,14 @@ import { barList, delta, emptyState, moneyKpi, thumb } from "/static/js/kit.js";
 import { CHANNEL_ICON } from "../erp.js";
 
 const PERIODS = [
+  { key: "30d", label: "۳۰ روز اخیر" },
   { key: "month", label: "این ماه" }, { key: "last_month", label: "ماه قبل" }, { key: "3m", label: "سه ماه اخیر" },
   { key: "year", label: "امسال" }, { key: "all", label: "از ابتدا" },
 ];
 
 export async function render(view, params, { setTitle }) {
   setTitle("گزارش‌ها", "سود واقعی بعد از بهای کالا و هزینه‌ها");
-  let period = storage("report-period") || "month";
+  let period = storage("report-period") || "30d";
   view.innerHTML = String(html`<div class="stack">
     <div class="row"><div class="chips scroll" id="periods" style="flex:1"></div>
       <a class="btn sm soft" href="/api/erp/export.xlsx">${icon("file-spreadsheet", "sm")} خروجی اکسل کامل</a></div>
@@ -39,13 +40,13 @@ function body(r) {
     ${mcost.lines ? html`<div class="callout warn">${icon("triangle-alert")}<div><b>${fa(mcost.lines)} ردیف فروش در این بازه قیمت خرید ندارد</b>
       (${num(mcost.revenue)} تومان)، پس سود این بازه بیشتر از واقع نشان داده می‌شود. <a href="#/erp/products?f=nocost">وارد کردن قیمت خرید</a> — فروش‌های گذشته خودکار اصلاح می‌شوند.</div></div>` : ""}
     <div class="grid g4">
-      ${moneyKpi({ label: "فروش", amount: t.revenue, color: "indigo", ico: "trending-up",
+      ${moneyKpi({ label: "فروش", amount: t.revenue, hero: true, ico: "trending-up",
         foot: html`${p ? delta(t.revenue, p.revenue) : ""} ${fa(t.orders)} سفارش، ${fa(t.items)} عدد` })}
-      ${moneyKpi({ label: "سود ناخالص", amount: t.gross, color: "orchid", ico: "sparkles",
+      ${moneyKpi({ label: "سود ناخالص", amount: t.gross, ico: "sparkles",
         foot: html`حاشیه ${pct(t.margin, 1)}، بهای کالا ${compact(t.cogs)}` })}
-      ${moneyKpi({ label: "هزینه‌های جاری", amount: t.expenses, color: "coral", ico: "receipt",
+      ${moneyKpi({ label: "هزینه‌های جاری", amount: t.expenses, ico: "receipt",
         foot: html`${p ? delta(t.expenses, p.expenses) : ""} بسته‌بندی، تبلیغات، …` })}
-      ${moneyKpi({ label: "سود خالص", amount: t.net, color: t.net >= 0 ? "mint" : "coral", ico: "piggy-bank",
+      ${moneyKpi({ label: "سود خالص", amount: t.net, tone: t.net < 0 ? "bad" : "", ico: "piggy-bank",
         foot: html`${p ? delta(t.net, p.net) : ""} ${r.label}` })}
     </div>
 

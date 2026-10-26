@@ -11,7 +11,7 @@ const LOG_LABEL = { stock_check: "بررسی موجودی", push_stock: "ارس�
   webhooks: "ثبت فوری", full_sync: "همگام‌سازی کامل", worker: "اتصال" };
 
 export async function render(view, params, { setTitle }) {
-  setTitle("اتصال سایت", "موجودی در پنل، همان عدد در سایت");
+  setTitle("همگام‌سازی سایت", "موجودی در پنل نگه داشته می‌شود و سایت همیشه همان عدد را نشان می‌دهد");
   let st = await api("/api/erp/woo");
   let cat = await api("/api/erp/woo/catalog");
   const draw = () => { view.innerHTML = String(page(st, cat)); };

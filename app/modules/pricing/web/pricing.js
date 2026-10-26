@@ -200,8 +200,8 @@ export function chartBase(el) {
   const scope = el.closest(".pricing, .p-sheet") || document.documentElement;
   Chart.defaults.font.family = "Vazirmatn, system-ui, sans-serif";
   Chart.defaults.color = cssVar(document.documentElement, "--muted");
-  return { ink2: cssVar(document.documentElement, "--ink-2"), ink: cssVar(document.documentElement, "--ink"), grid: cssVar(scope, "--grid"),
-    accent: cssVar(scope, "--accent"), market: cssVar(scope, "--market"), market2: cssVar(scope, "--market-2"), surface: cssVar(scope, "--surface") };
+  return { ink2: cssVar(document.documentElement, "--ink-2"), ink: cssVar(document.documentElement, "--ink"), grid: cssVar(document.documentElement, "--chart-grid"),
+    accent: cssVar(document.documentElement, "--accent"), market: cssVar(scope, "--market"), market2: cssVar(scope, "--market-2"), surface: cssVar(document.documentElement, "--surface") };
 }
 export function hexA(hex, a) {
   const h = hex.replace("#", "");

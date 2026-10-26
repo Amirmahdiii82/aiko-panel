@@ -9,7 +9,8 @@ from . import crawler, db, insights
 
 log = logging.getLogger("aiko.pricing.runner")
 MODULE = "pricing"
-TRIGGERS = {"schedule": "زمان‌بندی", "manual": "دستی", "cli": "خط فرمان", "startup": "شروع برنامه"}
+TRIGGERS = {"schedule": "زمان‌بندی", "manual": "دستی", "cli": "خط فرمان", "startup": "شروع برنامه",
+            "resume": "ادامه بعد از ری‌استارت"}
 
 
 def start_crawl(trigger: str, **kw) -> bool:

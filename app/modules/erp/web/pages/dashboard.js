@@ -1,21 +1,28 @@
-// Home: today at a glance, what needs attention, partner balance; the live activity folded away until opened.
-import { $, api, compact, delegate, fa, html, icon, jdate, num, on, pct, state, toman } from "/static/js/kit.js";
-import { barChart } from "/static/js/kit.js";
-import { avatar, barList, delta, emptyState, feedItem, moneyKpi } from "/static/js/kit.js";
+// Shop dashboard. Owners: a period switch (7 / 30 / 90 days, 12 months) and a channel switch, four numbers against
+// the period before (the first one dark), revenue over time next to the period before, the channel split, best
+// sellers, what needs attention and the partners' balance. Sellers: their own sales and the money they hold.
+import { $, api, avatar, compact, delegate, delta, emptyState, fa, html, icon, isOwner, jdate, kpi, moneyKpi, num, on, pct, storage,
+  thumb, todoBadge, todoList, toman, trendChart } from "/static/js/kit.js";
 import { openExpenseForm } from "./expenses.js";
 import { openSettlement } from "./money.js";
 import { CHANNEL_ICON, erp, isAdmin } from "../erp.js";
+
+const MAIN_CHANNELS = ["website", "instagram", "in_person"];     // always offered; the rest only when they sold
 
 export async function render(view, params, { setTitle }) {
   const hour = Number(new Date().toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Tehran" }));
   const greet = hour < 12 ? "صبح بخیر" : hour < 17 ? "روز بخیر" : "عصر بخیر";
   setTitle(isAdmin() ? "داشبورد فروشگاه" : `${greet}، ${erp.me.user.name}`, jdate(erp.me.today, { weekday: true }));
-  let data = await api("/api/erp/dashboard");
+  const pick = storage("erp-dash") || {};
+  let days = pick.days || 30, channel = pick.channel || "";
+  const load = (quiet = false) => api(`/api/erp/dashboard?days=${days}&channel=${channel}`, { quiet });
+  let data = await load();
   const draw = () => {
     view.innerHTML = String(data.seller ? sellerHome(data) : adminHome(data));
     if (!data.seller) {
-      const c = $("#daily-chart", view);
-      if (c) barChart(c, data.daily.map((d) => fa(jdate(d.date, { year: false }))), data.daily.map((d) => d.revenue));
+      const c = $("#trend-chart", view), t = data.trend;
+      const labels = t.unit === "day" ? t.labels.map((d) => jdate(d, { year: false })) : t.labels;
+      if (c) trendChart(c, labels, t.current, t.previous, { label: data.period_label, prevLabel: "دوره قبل" });
     }
   };
   draw();
@@ -26,20 +33,19 @@ export async function render(view, params, { setTitle }) {
     if (act === "expense") openExpenseForm();
     if (act === "settle") openSettlement(data.partners.settlement[0]);
   });
+  delegate(view, "click", "[data-days], [data-channel]", async (e, el) => {
+    if (el.classList.contains("on")) return;
+    if (el.dataset.days) days = Number(el.dataset.days);
+    if (el.dataset.channel !== undefined) channel = el.dataset.channel;
+    storage("erp-dash", { days, channel });
+    data = await load();
+    draw();
+  });
   let timer;
   const off = on("live:erp", (ev) => {
-    if (ev.type === "activity") {
-      const feed = $("#feed", view);
-      if (feed) {
-        const div = document.createElement("div");
-        div.innerHTML = String(feedItem({ ...ev.item, user_name: "" }));
-        div.firstElementChild.classList.add("fresh");
-        feed.prepend(div.firstElementChild);
-      }
-    }
-    if (ev.type === "refresh" || ev.type === "product") {
+    if (ev.type === "refresh" || ev.type === "product") {             // every change to a number sends one of these
       clearTimeout(timer);
-      timer = setTimeout(async () => { data = await api("/api/erp/dashboard", { quiet: true }); draw(); }, 1200);
+      timer = setTimeout(async () => { data = await load(true); draw(); }, 1200);
     }
   });
   return () => { off(); clearTimeout(timer); };
@@ -48,100 +54,109 @@ export async function render(view, params, { setTitle }) {
 function adminHome(d) {
   const m = d.period, pm = d.prev_period, inv = d.inventory, money = d.money, site = d.site;
   const settle = d.partners.settlement[0];
+  const one = !!d.channel;                       // a single channel: running expenses are the whole shop's
   const alerts = [];
-  if (inv.out_count) alerts.push({ ico: "ban", cls: "bad", text: `${fa(inv.out_count)} محصول ناموجود در انبار`, link: "#/erp/products?f=out" });
-  if (inv.low_count) alerts.push({ ico: "triangle-alert", cls: "warn", text: `${fa(inv.low_count)} محصول رو به اتمام`, link: "#/erp/products?f=low" });
-  if (site.errors) alerts.push({ ico: "cloud-off", cls: "bad", text: `${fa(site.errors)} خطای همگام‌سازی سایت`, link: "#/erp/site" });
-  if (!site.configured) alerts.push({ ico: "globe", cls: "info", text: "سایت هنوز وصل نشده — موجودی سایت خودکار به‌روز نمی‌شود", link: "#/erp/site" });
-  if (site.nocount) alerts.push({ ico: "hash", cls: "info", text: `${fa(site.nocount)} محصول در سایت تعداد موجودی ندارد`, link: "#/erp/site" });
-  if (site.unlinked && site.configured) alerts.push({ ico: "unlink", cls: "info", text: `${fa(site.unlinked)} محصول به سایت وصل نیست`, link: "#/erp/site" });
-  if (money.receivable) alerts.push({ ico: "clock", cls: "warn", text: `${toman(money.receivable)} فروش پرداخت‌نشده`, link: "#/erp/sales?unpaid=1" });
-  if (money.with_agents > 0) alerts.push({ ico: "hand-coins", cls: "info", text: `${toman(money.with_agents)} پول نزد فروشنده‌ها`, link: "#/erp/money" });
+  if (inv.out_count) alerts.push({ ico: "ban", tone: "bad", text: `${fa(inv.out_count)} محصول ناموجود در انبار`, href: "#/erp/products?f=out" });
+  if (inv.low_count) alerts.push({ ico: "triangle-alert", tone: "warn", text: `${fa(inv.low_count)} محصول رو به اتمام`, sub: "از «ثبت فروش و خرید ← خرید» دوباره پرش کنید", href: "#/erp/products?f=low" });
+  if (!site.configured) alerts.push({ ico: "globe", tone: "warn", text: "سایت هنوز وصل نشده", sub: isOwner() ? "آدرس و کلید ووکامرس در تنظیمات" : "از مدیر کل بخواهید کلید ووکامرس را وارد کند", href: isOwner() ? "#/settings/connections" : "#/erp/site" });
+  if (site.errors) alerts.push({ ico: "cloud-off", tone: "bad", text: `${fa(site.errors)} محصول با سایت هماهنگ نمی‌شود`, href: "#/erp/site" });
+  if (site.whole) alerts.push({ ico: "split", tone: "warn", text: `${fa(site.whole)} محصول باید به رنگ‌ها تفکیک شود`, href: "#/erp/site" });
+  if (site.nocount) alerts.push({ ico: "hash", tone: "info", text: `${fa(site.nocount)} محصول در سایت تعداد موجودی ندارد`, href: "#/erp/site" });
+  if (site.unlinked && site.configured) alerts.push({ ico: "unlink", tone: "info", text: `${fa(site.unlinked)} محصول انبار در سایت نیست`, href: "#/erp/products?f=unlinked" });
+  if (money.receivable) alerts.push({ ico: "clock", tone: "warn", text: `${toman(money.receivable)} فروش پرداخت‌نشده`, href: "#/erp/sales?unpaid=1" });
+  if (money.with_agents > 0) alerts.push({ ico: "hand-coins", tone: "info", text: `${toman(money.with_agents)} پول نزد فروشنده‌ها`, href: "#/erp/money" });
+  const vs = d.days >= 365 ? "نسبت به ۱۲ ماه قبل" : `نسبت به ${fa(d.days)} روز قبل`;
+  const chTotal = d.channels.reduce((a, c) => a + (c.revenue || 0), 0) || 1;
 
-  return html`<div class="stack erp-dashboard erp-admin-dashboard">
-    <div class="dash-head">
-      <h1>امروز ${d.today.orders ? html`${fa(d.today.orders)} فروش به مبلغ <span class="num">${compact(d.today.revenue)}</span> تومان` : "هنوز فروشی ثبت نشده"}</h1>
-      <p class="muted">${d.period_label}: ${fa(m.orders)} فروش، سود خالص ${compact(m.net)} تومان</p>
+  return html`<div class="stack">
+    <div class="row">
+      <div class="seg" role="group" aria-label="بازه">${Object.entries(d.periods).map(([k, label]) =>
+        html`<button class="${Number(k) === d.days ? "on" : ""}" data-days="${k}">${label.replace(" اخیر", "")}</button>`)}</div>
+      <div class="seg" role="group" aria-label="کانال"><button class="${!d.channel ? "on" : ""}" data-channel="">همه کانال‌ها</button>
+        ${Object.entries(d.channel_names).filter(([k]) => MAIN_CHANNELS.includes(k) || d.channels.some((c) => c.channel === k) || k === d.channel).map(([k, label]) =>
+          html`<button class="${k === d.channel ? "on" : ""}" data-channel="${k}">${label.split(" / ")[0]}</button>`)}</div>
+      <span class="spacer"></span>
       <div class="quick">
-        <button data-link="#/erp/sell"><span class="q-ico">${icon("shopping-bag")}</span><span>ثبت فروش</span></button>
-        <button data-act="expense"><span class="q-ico">${icon("receipt")}</span><span>ثبت هزینه</span></button>
-        <button data-link="#/erp/sell?mode=buy"><span class="q-ico">${icon("truck")}</span><span>خرید کالا</span></button>
-        <button data-link="#/erp/products?f=out"><span class="q-ico">${icon("package")}</span><span>موجودی</span></button>
+        <a href="#/erp/sell"><span class="q-ico">${icon("shopping-bag")}</span>ثبت فروش</a>
+        <button data-act="expense"><span class="q-ico">${icon("banknote")}</span>هزینه</button>
+        <a href="#/erp/sell?mode=buy"><span class="q-ico">${icon("truck")}</span>خرید کالا</a>
       </div>
     </div>
 
-    <div class="grid g4 erp-kpis">
-      ${moneyKpi({ label: "فروش ۳۰ روز اخیر", amount: m.revenue, color: "indigo", ico: "trending-up",
-        foot: html`${delta(m.revenue, pm.revenue)} <span>نسبت به ۳۰ روز قبل، ${fa(m.orders)} سفارش</span>` })}
-      ${moneyKpi({ label: "سود ناخالص", amount: m.gross, color: "orchid", ico: "sparkles",
-        foot: html`<span>حاشیه سود ${pct(m.margin)}</span>` })}
-      ${moneyKpi({ label: "سود خالص (بعد از هزینه‌ها)", amount: m.net, color: m.net >= 0 ? "mint" : "coral", ico: "piggy-bank",
-        foot: html`<span>هزینه‌های جاری ${compact(m.expenses)} تومان</span>` })}
-      ${moneyKpi({ label: "ارزش انبار (قیمت خرید)", amount: inv.cost_value, color: "sand", ico: "boxes",
-        foot: html`<span>${fa(inv.units)} عدد، ارزش فروش ${compact(inv.retail_value)}</span>` })}
+    <div class="grid g4">
+      ${moneyKpi({ hero: true, label: `فروش ${d.period_label}`, amount: m.revenue, href: "#/erp/sales",
+        foot: html`${delta(m.revenue, pm.revenue)} <span>${vs}</span>`, link: html`${fa(m.orders)} سفارش · امروز ${compact(d.today.revenue)}` })}
+      ${moneyKpi({ label: one ? "سود ناخالص" : "سود خالص", amount: one ? m.gross : m.net, ico: "piggy-bank", tone: (one ? m.gross : m.net) < 0 ? "bad" : "",
+        foot: html`${delta(one ? m.gross : m.net, one ? pm.gross : pm.net)} <span>حاشیه ${pct(m.margin)}${one ? "" : ` · هزینه‌ها ${compact(m.expenses)}`}</span>` })}
+      ${moneyKpi({ label: "میانگین هر سفارش", amount: m.avg_order, ico: "receipt",
+        foot: html`${delta(m.avg_order, pm.avg_order)} <span>${fa(m.items)} قلم فروخته شد</span>` })}
+      ${kpi({ label: "ارزش انبار", value: compact(inv.cost_value), unit: "تومان", ico: "boxes", title: `${toman(inv.cost_value)} به قیمت خرید`,
+        foot: html`<span>${fa(inv.units)} عدد · به قیمت فروش ${compact(inv.retail_value)}</span>`, href: "#/erp/products" })}
     </div>
 
-    <div class="grid side erp-analysis">
+    <div class="grid side">
       <section class="card">
-        <div class="card-head"><h2>${icon("chart-column")} فروش ۳۰ روز اخیر</h2><span class="spacer"></span>
-          <a class="btn sm ghost" href="#/erp/reports">گزارش کامل ${icon("chevron-left", "sm")}</a></div>
-        <div class="chart-box"><canvas id="daily-chart" aria-label="نمودار فروش روزانه"></canvas></div>
+        <div class="card-head"><h2>فروش در طول زمان</h2><span class="spacer"></span>
+          <span class="small muted row nowrap" style="gap:14px"><span class="row nowrap" style="gap:6px"><i style="width:14px;height:2px;background:var(--chart-1);display:inline-block"></i>${d.period_label}</span>
+          <span class="row nowrap" style="gap:6px"><i style="width:14px;height:0;border-top:2px dashed var(--chart-2);display:inline-block"></i>دوره قبل</span></span></div>
+        <div class="row" style="align-items:baseline;gap:10px;margin:-4px 0 6px"><span class="money-big">${compact(m.revenue)}</span><span class="small muted">تومان</span>${delta(m.revenue, pm.revenue)}</div>
+        <div class="chart-box"><canvas id="trend-chart" aria-label="نمودار فروش"></canvas></div>
       </section>
       <section class="card">
-        <div class="card-head"><h2>${icon("layers")} سهم کانال‌ها</h2><span class="spacer"></span><span class="muted small">${d.period_label}</span></div>
-        ${d.channels.length ? barList(d.channels, { label: (c) => html`${icon(CHANNEL_ICON[c.channel] || "tag", "sm")} ${c.label}`, value: (c) => c.revenue,
-          sub: (c) => `${fa(c.orders)} سفارش` }) : emptyState("layers", "در ۳۰ روز اخیر فروشی نیست")}
-      </section>
-    </div>
-
-    <div class="grid g2 erp-ops">
-      <section class="card">
-        <div class="card-head"><h2>${icon("bell")} نیاز به توجه</h2></div>
-        ${alerts.length ? html`<div class="list">${alerts.map((a) => html`<div class="list-item clickable" data-link="${a.link}">
-          <span class="badge ${a.cls}" style="width:34px;height:34px;padding:0;justify-content:center;border-radius:12px">${icon(a.ico)}</span>
-          <span class="grow title">${a.text}</span>${icon("chevron-left", "sm")}</div>`)}</div>`
-          : emptyState("circle-check", "همه چیز مرتب است")}
-      </section>
-      <section class="card">
-        <div class="card-head"><h2>${icon("handshake")} تسویه شرکا</h2><span class="spacer"></span><a class="btn xs ghost" href="#/erp/money">جزئیات</a></div>
-        ${settle ? html`<div class="stack s12">
-            <div class="row nowrap">${avatar(settle.from_name)} ${icon("arrow-left")} ${avatar(settle.to_name)}
-              <div><b>${settle.from_name}</b> باید به <b>${settle.to_name}</b> بدهد</div></div>
-            <div class="money-big">${num(settle.amount)} <span class="small muted">تومان</span></div>
-            <button class="btn soft block" data-act="settle">${icon("check")} ثبت این تسویه</button>
-          </div>`
-          : emptyState("scale", "حساب شرکا صاف است", "هر دو شریک به نسبت سهمشان هزینه کرده‌اند.")}
-        <div class="divider"></div>
-        <div class="list">
-          <div class="list-item"><span class="grow">پول در حساب‌های فروشگاه</span><b class="num">${compact(money.shop_cash)}</b></div>
-          ${money.with_agents ? html`<div class="list-item"><span class="grow">نزد فروشنده‌ها</span><b class="num">${compact(money.with_agents)}</b></div>` : ""}
-          ${money.receivable ? html`<div class="list-item"><span class="grow">طلب از مشتری‌ها</span><b class="num">${compact(money.receivable)}</b></div>` : ""}
-        </div>
+        <div class="card-head"><h2>سهم کانال‌ها</h2><span class="spacer"></span><span class="small muted">${d.period_label}</span></div>
+        ${d.channels.length ? html`
+          <div class="split-head"><b>${pct((d.channels[0].revenue || 0) / chTotal)}</b><span>${d.channels[0].label}</span></div>
+          <div class="split-bar">${d.channels.map((c, i) => html`<span class="s${Math.min(i, 2)}" style="width:${Math.max(2, (c.revenue / chTotal) * 100)}%" title="${c.label}"></span>`)}</div>
+          <div class="mt12">${d.channels.map((c, i) => html`<div class="ch-row">
+            <span class="sw s${Math.min(i, 2)}"></span>
+            <div class="grow"><b>${icon(CHANNEL_ICON[c.channel] || "tag", "sm")} ${c.label}</b><span>${fa(c.orders)} سفارش · میانگین ${compact(c.revenue / Math.max(1, c.orders))}</span></div>
+            <div class="amt">${compact(c.revenue)}</div></div>`)}</div>`
+          : emptyState("layers", `در ${d.period_label} فروشی نیست`)}
       </section>
     </div>
 
-    <details class="fold">
-      <summary>${icon("history")} آخرین رویدادها<span class="spacer"></span>
-        <span class="small muted row nowrap"><span class="live-dot ${state.live ? "" : "off"}"></span> زنده</span>${icon("chevron-down", "sm f-chev")}</summary>
-      <div class="fold-body"><div class="feed" id="feed">${d.recent.map(feedItem)}</div>
-        <a class="btn xs ghost" href="#/activity?module=erp">همه رویدادها ${icon("chevron-left", "sm")}</a></div>
-    </details>
+    <div class="grid g2">
+      <section class="card">
+        <div class="card-head"><h2>${icon("list-checks")} نیاز به توجه</h2><span class="spacer"></span>${todoBadge(alerts)}</div>
+        ${todoList(alerts, { clear: "انبار، سایت و حساب‌ها مشکلی ندارند." })}
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>${icon("trophy")} پرفروش‌ها</h2><span class="spacer"></span><a class="btn xs ghost" href="#/erp/reports">گزارش کامل ${icon("chevron-left", "sm")}</a></div>
+        ${d.top_products.length ? html`<div class="list">${d.top_products.map((p) => html`<div class="list-item ${p.product_id ? "clickable" : ""}" data-link="${p.product_id ? `#/erp/products/${p.product_id}` : ""}">
+            ${thumb(p, "sm")}<div class="grow"><div class="title small ellipsis">${p.name}</div><div class="sub">${fa(p.qty)} عدد</div></div>
+            <b class="num small">${compact(p.revenue)}</b></div>`)}</div>`
+          : emptyState("trophy", `در ${d.period_label} فروشی نیست`)}
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="card-head"><h2>${icon("handshake")} شرکا و نقدینگی</h2><span class="spacer"></span><a class="btn xs ghost" href="#/erp/money">حساب‌ها ${icon("chevron-left", "sm")}</a></div>
+      <div class="grid g3">
+        <div>${settle ? html`<div class="row nowrap">${avatar(settle.from_name, "sm")} ${icon("arrow-left", "sm")} ${avatar(settle.to_name, "sm")}
+            <div class="small"><b>${settle.from_name}</b> باید به <b>${settle.to_name}</b> بدهد</div></div>
+            <div class="row mt8" style="align-items:baseline"><span class="money-big md">${num(settle.amount)}</span><span class="small muted">تومان</span>
+            <button class="btn xs soft" data-act="settle">${icon("check", "sm")} ثبت تسویه</button></div>`
+          : html`<div class="small muted">${icon("scale", "sm")} حساب شرکا صاف است؛ هر دو به نسبت سهمشان هزینه کرده‌اند.</div>`}</div>
+        <div><div class="small muted">پول در حساب‌های فروشگاه</div><div class="money-big md">${compact(money.shop_cash)}</div></div>
+        <div><div class="small muted">طلب از مشتری‌ها${money.with_agents ? " و نزد فروشنده‌ها" : ""}</div>
+          <div class="money-big md">${compact((money.receivable || 0) + Math.max(0, money.with_agents || 0))}</div></div>
+      </div>
+    </section>
   </div>`;
 }
 
 function sellerHome(d) {
-  return html`<div class="stack erp-dashboard erp-seller-dashboard">
+  return html`<div class="stack">
     <section class="hero">
-      <span class="blob-deco" style="width:200px;height:200px;left:-50px;top:-70px"></span>
       <h1>فروش جدید داشتید؟</h1>
-      <p class="muted">همین‌جا ثبت کنید تا موجودی انبار و سایت فوراً کم شود و کسی کالای تمام‌شده را نخرد.</p>
-      <a class="btn brand lg mt16" href="#/erp/sell">${icon("plus")} ثبت فروش</a>
+      <p class="muted mt8">همین‌جا ثبت کنید تا موجودی انبار و سایت فوراً کم شود و کسی کالای تمام‌شده را نخرد.</p>
+      <a class="btn primary lg mt16" href="#/erp/sell">${icon("plus")} ثبت فروش</a>
     </section>
     <div class="grid g3">
-      ${moneyKpi({ label: "فروش ۳۰ روز اخیر شما", amount: d.month_total, color: "indigo", ico: "trending-up" })}
-      ${moneyKpi({ label: "پول نزد شما (تحویل‌نشده)", amount: d.held, color: d.held > 0 ? "coral" : "mint", ico: "hand-coins",
+      ${moneyKpi({ hero: true, label: "فروش ۳۰ روز اخیر شما", amount: d.month_total, ico: "trending-up" })}
+      ${moneyKpi({ label: "پول نزد شما (تحویل‌نشده)", amount: d.held, ico: "hand-coins",
         foot: d.held > 0 ? "بعد از تحویل به مدیر، صفر می‌شود" : "همه را تحویل داده‌اید" })}
-      ${moneyKpi({ label: "پورسانت ۳۰ روز اخیر", amount: d.commission, color: "orchid", ico: "badge-percent" })}
+      ${moneyKpi({ label: "پورسانت ۳۰ روز اخیر", amount: d.commission, ico: "badge-percent" })}
     </div>
     <section class="card">
       <div class="card-head"><h2>${icon("receipt")} فروش‌های اخیر شما</h2><span class="spacer"></span><a class="btn xs ghost" href="#/erp/sales">همه</a></div>

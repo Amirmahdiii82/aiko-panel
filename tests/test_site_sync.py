@@ -51,7 +51,7 @@ def _sheet_product(con, name, cost, qty, price):
 
 def _sheet_sale(con, day, items, channel="website"):
     return ledger.create_sale(con, {"code": f"ORD-{day}", "date": day, "channel": channel, "source": "sheet",
-                                    "note": "از فایل اکسل", "items": items}, None, quiet=True, legacy=True)
+                                    "note": "از فایل اکسل", "items": items}, None, quiet=True)
 
 
 def test_full_sync_merges_sheet_sales_with_exact_site_orders(owner):
@@ -153,12 +153,6 @@ def test_connections_are_shared_and_secrets_stay_on_the_server(owner):
     assert pricing_config.own_site_url() == "https://shop.ir"
     assert openrouter.settings()["proxy_url"] == "socks5://127.0.0.1:1080"
     assert owner.put("/api/integrations", json={"proxy_url": "ftp://x"}, headers=H).status_code == 400
-
-
-def test_old_module_keys_move_to_the_shared_connection(owner):
-    db.set_setting("woo", {**(db.get_setting("woo") or {}), "key": "ck_old", "secret": "cs_old"})
-    client.adopt_legacy_keys()
-    assert integrations.woo()["key"] == "ck_old" and "key" not in db.get_setting("woo")
 
 
 def test_telegram_backup_goes_through_the_proxy(owner, monkeypatch):

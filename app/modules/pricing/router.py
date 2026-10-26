@@ -10,8 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ...core import auth
-from ...core import jobs as core_jobs
-from . import config, crawler, db, insights, research, sources
+from . import config, crawler, db, insights, research, schedule, sources
 from .matching import Matcher, Own
 from .runner import start_crawl
 
@@ -26,20 +25,33 @@ Editor = Depends(auth.require("pricing", "editor"))
 def meta():
     disabled = set(db.get_setting("disabled_sites", []) or [])
     excluded = insights.excluded_sites()
-    jobs = core_jobs.next_runs("pricing.crawl")
     return {
         "own": {"name": config.OWN_SITE_NAME, "url": config.own_site_url()},
         "branding": db.get_setting("branding", {}) or {},
         "sites": [{"key": k, "name": n, "url": sources.HOMEPAGES.get(k), "enabled": k not in disabled,
                    "in_stats": k not in excluded, "marketplace": k in sources.MARKETPLACES} for k, n, _ in sources.COMPETITORS],
-        "schedule": config.CRAWL_TIMES,
+        "schedule": schedule.times(),
         "timezone": config.TIMEZONE,
-        "next_run": jobs[0].isoformat() if jobs else None,
+        "next_run": schedule.next_run(),
         "running": crawler.is_running(),
         "progress": crawler.progress,
         "thresholds": {"auto": config.MATCH_AUTO, "review": config.MATCH_REVIEW},
         "positions": insights.POSITIONS,
     }
+
+
+class ScheduleBody(BaseModel):
+    times: list[str] = []
+
+
+@router.put("/schedule", dependencies=[Editor])
+def save_schedule(body: ScheduleBody):
+    """The daily timetable of automatic crawls (Tehran time)."""
+    try:
+        saved = schedule.save(body.times)
+    except schedule.ScheduleError as exc:
+        raise HTTPException(400, str(exc))
+    return {"schedule": saved, "next_run": schedule.next_run()}
 
 
 @router.get("/summary", dependencies=[Viewer])

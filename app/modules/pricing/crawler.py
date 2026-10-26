@@ -348,7 +348,8 @@ async def run_crawl(trigger: str = "schedule", only_sites: list[str] | None = No
     async with _running:
         with db.tx() as c:
             crawl_id = c.execute(
-                "INSERT INTO crawls(started_at, status, trigger) VALUES(?, 'running', ?)", (db.now_iso(), trigger)
+                "INSERT INTO crawls(started_at, status, trigger, stats) VALUES(?, 'running', ?, ?)",
+                (db.now_iso(), trigger, '{"partial": true}' if only_sites or product_ids else None)
             ).lastrowid
         progress.clear()
         progress.update({"crawl_id": crawl_id, "stage": "catalog", "sites": {}})

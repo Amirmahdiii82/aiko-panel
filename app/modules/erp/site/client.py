@@ -57,16 +57,6 @@ def ensure_webhook_secret() -> None:
             db.set_setting("woo", s, con)
 
 
-def adopt_legacy_keys() -> None:
-    """Keys used to be saved on the ERP site page; hand them to the shared connection once."""
-    s = db.get_setting("woo", {}) or {}
-    integrations.adopt("woo", {k: s.get(k) for k in ("url", "key", "secret", "query_auth", "currency")
-                               if k != "url" or s.get("key")})
-    if s.get("key") or s.get("secret"):
-        with db.tx() as con:
-            db.set_setting("woo", {k: v for k, v in s.items() if k not in ("url", "key", "secret", "query_auth", "currency")}, con)
-
-
 def to_toman(value, currency: str | None) -> int:
     try:
         return int(round(float(value or 0) * CURRENCY_FACTOR.get((currency or "IRT").upper(), 1)))

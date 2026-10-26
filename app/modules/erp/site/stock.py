@@ -139,6 +139,10 @@ def reconcile(con, entries: list[dict], *, parents=None, full: bool = False) -> 
 COUNT_FILES = sorted((Path(__file__).resolve().parents[1] / "counts").glob("stock_count_*.json"))
 
 
+def _plans() -> list[dict]:
+    return [json.loads(path.read_text(encoding="utf-8")) for path in COUNT_FILES]
+
+
 def apply_count(con, entries: list[dict]) -> dict | None:
     """A full hand count of the shop (counts/stock_count_*.json: site product/color ids → counted number and, optionally,
     unit cost; plus items only kept here; with "tidy", products not on the site are merged or retired first —
@@ -146,8 +150,7 @@ def apply_count(con, entries: list[dict]) -> dict | None:
     them to the site. Only on the shop it was made for — most of its site ids must be in this catalogue — so a test or
     an empty database never gets it. A product linked as a whole to one with colors is split into its colors first."""
     result = None
-    for path in COUNT_FILES:
-        plan = json.loads(path.read_text(encoding="utf-8"))
+    for plan in _plans():
         done = db.get_setting("stock_counts_applied", [], con) or []
         keys = {(e["woo_id"], e["variation_id"]) for e in entries}
         wanted = [(i["woo_id"], i["variation_id"]) for i in plan["items"]]
@@ -218,15 +221,13 @@ def count_status(con) -> list[dict]:
     """The shipped hand counts and whether each has been applied; one still waiting says how much of it the last
     catalogue read recognised (it applies at the next full comparison once 80% of its site ids are there)."""
     applied = set(db.get_setting("stock_counts_applied", [], con) or [])
-    keys = {(e["woo_id"], e["variation_id"]) for e in (db.get_setting("woo_catalog", {}, con) or {}).get("items") or []}
-    status = []
-    for path in COUNT_FILES:
-        plan = json.loads(path.read_text(encoding="utf-8"))
-        items = plan.get("items") or []
-        status.append({"label": plan["label"], "applied": plan["label"] in applied, "products": len(items),
-                       "units": sum(int(i.get("qty") or 0) for i in items),
-                       "recognised": sum((i["woo_id"], i["variation_id"]) in keys for i in items)})
-    return status
+    plans = _plans()
+    keys = set()
+    if any(p["label"] not in applied for p in plans):          # the catalogue is only needed for a waiting count
+        keys = {(e["woo_id"], e["variation_id"]) for e in (db.get_setting("woo_catalog", {}, con) or {}).get("items") or []}
+    return [{"label": p["label"], "applied": p["label"] in applied, "products": len(p.get("items") or []),
+             "units": sum(int(i.get("qty") or 0) for i in p.get("items") or []),
+             "recognised": sum((i["woo_id"], i["variation_id"]) in keys for i in p.get("items") or [])} for p in plans]
 
 
 async def refresh(*, full: bool = False, parents=None, changed_since: str | None = None) -> dict:

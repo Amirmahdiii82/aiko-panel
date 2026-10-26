@@ -51,10 +51,10 @@ export async function render(view, params, { setTitle }) {
           ${s.index_history.length > 1 ? html`<div class="p-hero-spark"><canvas id="sparkIdx"></canvas></div>` : ""}
         </div>
         <div class="grid g2">
-          ${tile("compared", "محصولات مقایسه‌شده", n(s.compared), `${n(s.coverage_pct)}٪ از محصولات قیمت‌دار رقیب دارند`, "indigo", "chart-column")}
-          ${tile("cheapest", "ارزان‌ترین بازار هستید", `${n(s.cheapest_share)}٪`, `${n(count("cheapest"))} محصول`, "mint", "circle-check")}
-          ${tile("far_above", "بیش از ۱۰٪ گران‌ترید", n(count("far_above")), "محصول — احتمال از دست دادن فروش", "coral", "triangle-alert")}
-          ${tile("raise", "فرصت افزایش قیمت", n(s.raise_count), s.raise_total ? `تا ${short(s.raise_total)} تومان سود بیشتر در هر دور فروش` : "محصولی با فاصله زیاد از رقیب نیست", "orchid", "piggy-bank")}
+          ${tile("compared", "محصولات مقایسه‌شده", n(s.compared), `${n(s.coverage_pct)}٪ از محصولات قیمت‌دار رقیب دارند`, "chart-column")}
+          ${tile("cheapest", "ارزان‌ترین بازار هستید", `${n(s.cheapest_share)}٪`, `${n(count("cheapest"))} محصول`, "circle-check")}
+          ${tile("far_above", "بیش از ۱۰٪ گران‌ترید", n(count("far_above")), "محصول — احتمال از دست دادن فروش", "triangle-alert")}
+          ${tile("raise", "فرصت افزایش قیمت", n(s.raise_count), s.raise_total ? `تا ${short(s.raise_total)} تومان سود بیشتر در هر دور فروش` : "محصولی با فاصله زیاد از رقیب نیست", "piggy-bank")}
         </div>
       </section>
       ${s.pending_reviews ? html`<a class="callout" href="#/pricing/review" style="text-decoration:none;align-items:center">${icon("eye")}
@@ -143,8 +143,8 @@ function crawlStatus(m, s) {
   </div>`;
 }
 
-function tile(k, label, value, foot, color, ico) {
-  return html`<button class="kpi ${color}" data-k="${k}"><span class="k-icon">${icon(ico)}</span>
+function tile(k, label, value, foot, ico) {
+  return html`<button class="kpi" data-k="${k}"><span class="k-icon">${icon(ico)}</span>
     <span class="k-label">${label}</span><span class="k-value num">${value}</span><span class="k-foot">${foot}</span></button>`;
 }
 function riskRow(r) {

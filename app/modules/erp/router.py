@@ -1,16 +1,13 @@
 """ERP HTTP API (mounted at /api/erp). Login, users, uploads and the live stream are core endpoints."""
 import asyncio
 import secrets
-import shutil
-import tempfile
 from datetime import date, timedelta
-from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
 from ...core import drive, events
-from . import config, db, exporter, importer, ledger, notify, receipts, reports, statements
+from . import config, db, exporter, ledger, notify, receipts, reports, statements
 from .site import client, history, matching, orders, stock
 from .deps import Admin, User
 
@@ -85,11 +82,11 @@ def ledger_profile(con, user_id: int, name: str, role: str, profile: dict) -> No
 
 
 @router.get("/dashboard")
-def dashboard(user=User):
+def dashboard(days: int = 30, channel: str = "", user=User):
     with db.read() as con:
         if user["role"] != "admin":
             return seller_home(con, user)
-        return reports.dashboard(con, user)
+        return reports.dashboard(con, user, days, channel)
 
 
 def seller_home(con, user) -> dict:
@@ -825,17 +822,7 @@ async def partners_update(partner_id: int, request: Request, user=Admin):
     return {"ok": True}
 
 
-# ---------------------------------------------------------------- files, import, export, backup
-
-
-@router.post("/import-excel")
-async def import_excel(file: UploadFile = File(...), user=Admin):
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-        shutil.copyfileobj(file.file, tmp)
-    try:
-        return await asyncio.to_thread(importer.run, tmp.name, user)
-    finally:
-        Path(tmp.name).unlink(missing_ok=True)
+# ---------------------------------------------------------------- export
 
 
 @router.get("/export.xlsx")

@@ -2,20 +2,18 @@
 import { compact, fa } from "/static/js/kit.js";
 import { erp, refreshMe } from "./erp.js";
 
+// the module's pages, shown as tabs under the page title (settings live in Settings → فروشگاه و حسابداری)
 const ADMIN_NAV = [
-  { href: "", label: "داشبورد فروشگاه", ico: "layout-dashboard" },
+  { href: "", label: "داشبورد", ico: "layout-dashboard" },
   { href: "sell", label: "ثبت فروش و خرید", ico: "shopping-bag" },
-  { href: "products", label: "محصولات و انبار", ico: "package" },
+  { href: "products", label: "انبار", ico: "package" },
   { href: "sales", label: "فروش‌ها", ico: "receipt" },
-  { section: "مالی" },
-  { href: "purchases", label: "خرید کالا", ico: "truck" },
+  { href: "purchases", label: "خریدها", ico: "truck" },
   { href: "expenses", label: "هزینه‌ها", ico: "banknote" },
   { href: "money", label: "حساب‌ها و شرکا", ico: "wallet" },
   { href: "reports", label: "گزارش‌ها", ico: "chart-column" },
   { href: "statements", label: "صورت‌های مالی", ico: "scale" },
-  { section: "فروشگاه" },
-  { href: "site", label: "اتصال سایت", ico: "globe" },
-  { href: "settings", label: "تنظیمات فروشگاه", ico: "settings" },
+  { href: "site", label: "همگام‌سازی سایت", ico: "globe" },
 ];
 const SELLER_NAV = [
   { href: "", label: "خانه", ico: "house" },
@@ -29,12 +27,7 @@ export default {
   id: "erp",
   css: ["/m/erp/erp.css"],
   nav: (role) => (role === "admin" ? ADMIN_NAV : SELLER_NAV),
-  mobile: (role) => role === "admin"
-    ? [{ href: "", label: "فروشگاه", ico: "layout-dashboard" }, { href: "products", label: "انبار", ico: "package" },
-      { href: "sell", label: "فروش", ico: "plus", fab: true }, { href: "expenses", label: "هزینه", ico: "banknote" }]
-    : [{ href: "", label: "خانه", ico: "house" }, { href: "products", label: "موجودی", ico: "package" },
-      { href: "sell", label: "فروش", ico: "plus", fab: true }, { href: "sales", label: "فروش‌ها", ico: "receipt" }],
-  action: () => ({ href: "sell", label: "ثبت سریع", ico: "plus" }),
+  action: () => ({ href: "sell", label: "ثبت فروش", ico: "plus" }),
   allowed: (role, page) => role === "admin" || SELLER_PAGES.includes(page),
   pages: {
     "": () => import("./pages/dashboard.js"),
@@ -47,13 +40,13 @@ export default {
     reports: () => import("./pages/reports.js"),
     statements: () => import("./pages/statements.js"),
     site: () => import("./pages/site.js"),
-    settings: () => import("./pages/settings.js"),
   },
+  settings: () => import("./pages/settings.js"),
   // boot data (accounts, partners, channels, ...) is loaded once, the first time the module opens
   enter: async () => { if (!erp.me) await refreshMe(); },
-  quick: (role) => [{ href: "#/erp/sell", label: "ثبت فروش", ico: "shopping-bag", tone: "coral" },
-    ...(role === "admin" ? [{ href: "#/erp/sell?mode=buy", label: "خرید کالا", ico: "truck", tone: "indigo" },
-      { href: "#/erp/expenses/new", label: "ثبت هزینه", ico: "banknote", tone: "orchid" }] : [])],
+  quick: (role) => [{ href: "#/erp/sell", label: "ثبت فروش", ico: "shopping-bag" },
+    ...(role === "admin" ? [{ href: "#/erp/sell?mode=buy", label: "خرید کالا", ico: "truck" },
+      { href: "#/erp/expenses/new", label: "ثبت هزینه", ico: "banknote" }] : [])],
 
   /** The unified home page: a headline, key numbers and what needs attention (see core/web/js/pages/home.js). */
   glance(d, role) {
@@ -76,8 +69,8 @@ export default {
     return {
       headline: d.today.orders ? `امروز ${fa(d.today.orders)} فروش به مبلغ ${compact(d.today.revenue)} تومان` : "امروز هنوز فروشی ثبت نشده",
       stats: [
-        { label: "فروش امروز", value: compact(d.today.revenue), unit: `${fa(d.today.orders)} سفارش`, href: "#/erp/sales" },
-        { label: `فروش ${d.period_label}`, value: compact(d.period.revenue), unit: "تومان", href: "#/erp/reports" },
+        { label: `فروش ${d.period_label}`, value: compact(d.period.revenue), unit: "تومان", foot: `${fa(d.period.orders)} سفارش`, href: "#/erp" },
+        { label: "فروش امروز", value: compact(d.today.revenue), unit: d.today.revenue ? "تومان" : "", foot: `${fa(d.today.orders)} سفارش`, href: "#/erp/sales" },
         { label: "سود خالص ۳۰ روز", value: compact(d.period.net), unit: "تومان", tone: d.period.net < 0 ? "bad" : "", href: "#/erp/reports" },
         { label: "ارزش انبار", value: compact(d.stock_value), unit: "به قیمت خرید", href: "#/erp/products" },
       ],

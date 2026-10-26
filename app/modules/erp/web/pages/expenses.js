@@ -52,7 +52,7 @@ export async function render(view, params, { setTitle }) {
       <thead><tr><th>تاریخ</th><th>دسته</th><th>شرح</th><th>پرداخت از</th><th class="n">مبلغ</th><th></th></tr></thead>
       <tbody>${list.map((r) => html`<tr class="clickable" data-open="${r.id}">
         <td class="nowrap">${jdate(r.date, { year: false })}</td>
-        <td><span class="badge ${r.is_inventory ? "info" : "orchid"}">${r.category}</span></td>
+        <td><span class="badge ${r.is_inventory ? "info" : ""}">${r.category}</span></td>
         <td class="m-full small">${r.description || ""}${r.note ? html` <span class="muted">، <bdi>${r.note}</bdi></span>` : ""}</td>
         <td class="small">${r.account_name || "—"}</td>
         <td class="n bold">${num(r.amount)}</td>

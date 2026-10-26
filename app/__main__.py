@@ -4,9 +4,7 @@
   python -m app migrate                    bring every database to the latest schema
   python -m app set-password USER PASS     reset a password
   python -m app backup [DIR]               write a backup snapshot now (default: data/backups/<today>)
-  python -m app import-legacy [--erp PATH] [--pricing PATH] [--uploads DIR]
-                                           one-time move from the old separate apps
-  python -m app <module> <command> ...     module commands, e.g. `pricing crawl`, `erp import-excel FILE`
+  python -m app <module> <command> ...     module commands, e.g. `pricing crawl`
 """
 import sys
 
@@ -41,9 +39,6 @@ def main() -> None:
         from pathlib import Path
         from .core import backup
         print(backup.snapshot(Path(args[1]) if len(args) > 1 else None))
-    elif cmd == "import-legacy":
-        from .core import legacy
-        legacy.main(args[1:])
     elif cmd in modules.loaded and len(args) > 1 and args[1] in modules.loaded[cmd].cli:
         modules.loaded[cmd].cli[args[1]](args[2:])
     else:

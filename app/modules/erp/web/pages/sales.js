@@ -14,7 +14,7 @@ export async function render(view, params, { setTitle, query }) {
     <div class="card tight stack s12">
       <div class="row">
         <div class="input-wrap" style="flex:1;min-width:220px">${icon("search")}<input class="input" id="q" placeholder="کد، مشتری، تلفن یا نام محصول…"></div>
-        <a class="btn brand" href="#/erp/sell">${icon("plus")} فروش جدید</a>
+        <a class="btn primary" href="#/erp/sell">${icon("plus")} فروش جدید</a>
       </div>
       <div id="periods"></div>
       <div class="row">
@@ -47,12 +47,12 @@ export async function render(view, params, { setTitle, query }) {
     const unpaid = done.filter((r) => !r.paid).reduce((s, r) => s + r.total, 0);
     const items = done.reduce((s, r) => s + (r.items_count || 0), 0);
     $("#summary", view).innerHTML = String(html`
-      <div class="kpi indigo"><div class="k-label">تعداد فروش</div><div class="k-value">${fa(done.length)}</div><div class="k-foot">${fa(items)} عدد کالا</div></div>
-      <div class="kpi orchid" title="${toman(revenue)}"><div class="k-label">مبلغ فروش</div><div class="k-value">${compact(revenue)}<span class="k-unit">تومان</span></div>
+      <div class="kpi hero"><div class="k-label">تعداد فروش</div><div class="k-value">${fa(done.length)}</div><div class="k-foot">${fa(items)} عدد کالا</div></div>
+      <div class="kpi" title="${toman(revenue)}"><div class="k-label">مبلغ فروش</div><div class="k-value">${compact(revenue)}<span class="k-unit">تومان</span></div>
         <div class="k-foot">میانگین هر سفارش ${compact(done.length ? revenue / done.length : 0)}</div></div>
-      ${admin ? html`<div class="kpi mint" title="${toman(profit)}"><div class="k-label">سود ناخالص</div><div class="k-value">${compact(profit)}<span class="k-unit">تومان</span></div>
+      ${admin ? html`<div class="kpi ${profit < 0 ? "bad" : ""}" title="${toman(profit)}"><div class="k-label">سود ناخالص</div><div class="k-value">${compact(profit)}<span class="k-unit">تومان</span></div>
         <div class="k-foot">قبل از هزینه‌های جاری</div></div>` : ""}
-      <div class="kpi ${unpaid ? "coral" : "sand"}"><div class="k-label">پرداخت‌نشده</div><div class="k-value">${compact(unpaid)}<span class="k-unit">تومان</span></div>
+      <div class="kpi ${unpaid ? "bad" : ""}"><div class="k-label">پرداخت‌نشده</div><div class="k-value">${compact(unpaid)}<span class="k-unit">تومان</span></div>
         <div class="k-foot">${fa(done.filter((r) => !r.paid).length)} فروش</div></div>`);
     const el = $("#list", view);
     if (!rows.length) {

@@ -7,7 +7,7 @@ import { bindReceiptBox, erp, receiptBox } from "../erp.js";
 const norm = (s) => String(s || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/‌/g, " ").toLowerCase();
 
 export async function render(view, params, { setTitle }) {
-  setTitle("خرید کالا", "هر خرید موجودی را زیاد و میانگین قیمت تمام‌شده را به‌روز می‌کند");
+  setTitle("خریدها", "هر خرید موجودی را زیاد و میانگین قیمت تمام‌شده را به‌روز می‌کند");
   const f = { period: "3m", q: "" };
   let rows = [];
   view.innerHTML = String(html`<div class="stack">

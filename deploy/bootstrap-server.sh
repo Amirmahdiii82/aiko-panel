@@ -6,18 +6,13 @@
 # What it does (each step is skipped if already done):
 #   1. creates the `aiko` system user and /opt/aiko-panel with a Python venv
 #   2. copies the code, writes .env from .env.example (edit it afterwards!)
-#   3. imports the old apps' data if they exist on this server
-#        /opt/price-checker/data/prices.db   → pricing module
-#        /opt/aiko-erp/data/aiko.db (+ uploads) → ERP module (only if the ERP ran here)
+#   3. creates the databases (restore a backup into /opt/aiko-panel/data first to move an existing panel)
 #   4. installs the systemd units (app + deploy receiver) and the TCP MSS clamp
-#   5. prints the Caddy block to add — the old price checker keeps running until you switch
+#   5. prints what is left: .env, the Caddy block, the GitHub deploy secret
 set -euo pipefail
 
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 ROOT=/opt/aiko-panel
-OLD_PRICING=${OLD_PRICING:-/opt/price-checker/data/prices.db}
-OLD_ERP=${OLD_ERP:-/opt/aiko-erp/data/aiko.db}
-OLD_UPLOADS=${OLD_UPLOADS:-/opt/aiko-erp/data/uploads}
 
 [[ $EUID -eq 0 ]] || { echo "run as root (sudo)"; exit 1; }
 command -v python3 >/dev/null || { echo "python3 is required (3.10 or newer)"; exit 1; }
@@ -36,41 +31,20 @@ echo "==> python environment"
 if [[ ! -f $ROOT/.env ]]; then
   echo "==> .env (from .env.example)"
   cp "$ROOT/.env.example" "$ROOT/.env"
-  # reuse the price checker's settings so crawling behaves exactly as before
-  if [[ -f /opt/price-checker/.env ]]; then
-    for key in OWN_SITE_URL OWN_SITE_NAME CRAWL_TIMES MATCH_AUTO MATCH_REVIEW SITE_CONCURRENCY REQUEST_DELAY REQUEST_TIMEOUT HTTP_PROXY_URL TOROB_SELLERS; do
-      line=$(grep -E "^$key=" /opt/price-checker/.env || true)
-      [[ -n $line ]] && sed -i "s|^#\?\s*$key=.*|$line|" "$ROOT/.env"
-    done
-  fi
   sed -i "s|^INITIAL_PASSWORD=.*|INITIAL_PASSWORD=$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 12)|" "$ROOT/.env"
   echo "   first-login password for the owners: $(grep ^INITIAL_PASSWORD "$ROOT/.env" | cut -d= -f2)"
 fi
 chown root:aiko "$ROOT/.env" && chmod 640 "$ROOT/.env"
 
-if [[ ! -f $ROOT/data/core.db ]]; then
-  echo "==> importing the old apps (read-only, nothing is changed there)"
-  args=()
-  [[ -f $OLD_ERP ]] && args+=(--erp "$OLD_ERP")
-  [[ -f $OLD_PRICING ]] && args+=(--pricing "$OLD_PRICING")
-  [[ -d $OLD_UPLOADS ]] && args+=(--uploads "$OLD_UPLOADS")
-  if (( ${#args[@]} )); then
-    (cd "$ROOT" && "$ROOT/.venv/bin/python" -m app import-legacy "${args[@]}")
-  else
-    (cd "$ROOT" && "$ROOT/.venv/bin/python" -m app migrate)
-  fi
-fi
+echo "==> databases"
+(cd "$ROOT" && "$ROOT/.venv/bin/python" -m app migrate)
 chown -R aiko:aiko "$ROOT/data"
 
 echo "==> systemd"
 cp "$ROOT/deploy/aiko-panel.service" "$ROOT/deploy/aiko-panel-deploy.service" /etc/systemd/system/
 [[ -f /etc/systemd/system/tcp-mss-clamp.service ]] || cp "$ROOT/deploy/tcp-mss-clamp.service" /etc/systemd/system/
 if [[ ! -f /etc/aiko-panel/deploy.env ]]; then
-  if [[ -f /etc/price-checker/deploy.env ]]; then
-    cp /etc/price-checker/deploy.env /etc/aiko-panel/deploy.env      # same GitHub secret keeps working
-  else
-    echo "DEPLOY_SECRET=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40)" > /etc/aiko-panel/deploy.env
-  fi
+  echo "DEPLOY_SECRET=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40)" > /etc/aiko-panel/deploy.env
   chmod 600 /etc/aiko-panel/deploy.env
 fi
 systemctl daemon-reload
@@ -88,7 +62,4 @@ cat <<EOF
      then: systemctl reload caddy
   3. GitHub: repo secret DEPLOY_SECRET = value in /etc/aiko-panel/deploy.env,
      repo variable DEPLOY_URL = https://<panel domain>/__deploy
-  4. when the panel works, stop the old price checker:
-       systemctl disable --now price-checker price-checker-deploy
-     and enable the redirect block for the old domain in the Caddyfile.
 EOF

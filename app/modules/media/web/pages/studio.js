@@ -49,7 +49,7 @@ export async function render(view, params, { setTitle, query }) {
       composer.innerHTML = String(html`<div class="stack s12">
         <h2>${icon("wand-sparkles")} استودیو هنوز وصل نیست</h2>
         <p class="small muted" style="line-height:2">برای ساخت ویدیو و تصویر، کلید API سرویس OpenRouter لازم است. کلید فقط روی سرور نگه داشته می‌شود و هیچ‌وقت به مرورگر نمی‌رسد.</p>
-        ${isOwner() ? html`<a class="btn primary" href="#/media/settings">${icon("key-round")} تنظیم کلید OpenRouter</a>` : html`<p class="small">از مدیر بخواهید کلید را در تنظیمات استودیو وارد کند.</p>`}
+        ${isOwner() ? html`<a class="btn primary" href="#/settings/connections">${icon("key-round")} تنظیم کلید OpenRouter</a>` : html`<p class="small">از مدیر بخواهید کلید را در تنظیمات استودیو وارد کند.</p>`}
       </div>`);
       return;
     }

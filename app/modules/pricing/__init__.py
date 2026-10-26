@@ -3,28 +3,28 @@ import asyncio
 import sys
 from pathlib import Path
 
-from ...core import jobs
 from ...core.botkit import Report
 from ...core.text import fa
 from ...core.modules import Module
-from . import config, crawler, db, insights
+from . import config, crawler, db, insights, schedule
 from .router import router
 from .runner import start_crawl
 
 
-async def scheduled_crawl() -> None:
-    # async so APScheduler runs it on the event loop (sync jobs run in a worker thread with no loop)
-    start_crawl("schedule")
-
-
 async def startup() -> None:
-    # a crawl that was cut off by a restart is marked failed
+    # A full crawl cut off by a restart (a deploy, usually) is marked failed and run again as "resume" — once: a resume
+    # that is cut too (a crawl that brings the process down) is not run a third time. A cut partial run is dropped.
     with db.tx() as c:
-        c.execute("UPDATE crawls SET status='failed', finished_at=? WHERE status='running'", (db.now_iso(),))
+        resume = c.execute("""SELECT 1 FROM crawls WHERE status='running' AND trigger != 'resume'
+                              AND json_extract(COALESCE(stats, '{}'), '$.partial') IS NULL""").fetchone()
+        c.execute("""UPDATE crawls SET status='failed', finished_at=?,
+                     stats=json_set(COALESCE(stats, '{}'), '$.error', 'با ری‌استارت برنامه نیمه‌کاره ماند')
+                     WHERE status='running'""", (db.now_iso(),))
         c.execute("UPDATE new_products SET status='done' WHERE status='running'")
-    for t in config.CRAWL_TIMES:
-        jobs.daily(f"pricing.crawl.{t}", t, scheduled_crawl)
-    if config.RUN_ON_STARTUP:
+    schedule.apply()
+    if resume:
+        start_crawl("resume")
+    elif config.RUN_ON_STARTUP:
         start_crawl("startup")
 
 
@@ -82,6 +82,7 @@ def _cli_crawl(args: list[str]) -> None:
 module = Module(
     id="pricing",
     name="قیمت رقبا",
+    short="قیمت‌ها",
     icon="chart-line",
     description="مقایسه قیمت محصولات سایت با رقبا، تأیید تطبیق‌ها و قیمت‌گذاری محصول جدید",
     roles={"editor": "مدیر قیمت‌گذاری", "viewer": "فقط مشاهده"},
