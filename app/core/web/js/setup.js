@@ -14,7 +14,7 @@ export const ITEMS = [
     done: () => "تلگرام و OpenRouter از این مسیر می‌روند" },
   { key: "bot", section: "notify", ico: "bot", title: "ربات اعلان‌ها", need: "پیام فوری برای فروش، تمام شدن موجودی و…",
     done: (s) => `${s.bot.bot === "telegram" ? "تلگرام" : "بله"} — پیام‌ها به ${fa(s.bot.chat_ids.split(",").filter(Boolean).length)} چت می‌رود` },
-  { key: "backup", section: "backup", ico: "database", title: "پشتیبان در کانال تلگرام", need: "هر ساعت یک نسخه از همه داده‌ها بیرون از سرور",
+  { key: "backup", section: "backup", ico: "database", title: "پشتیبان در کانال", need: "هر چند ساعت یک نسخه از همه داده‌ها بیرون از سرور (بله یا تلگرام)",
     done: (s) => (s.backup.last_at ? `آخرین ارسال ${when(s.backup.last_at)}` : `روشن — هر ${fa(s.backup.hours)} ساعت`) },
   { key: "drive", section: "drive", ico: "folder", title: "رسیدها در گوگل درایو", optional: true, need: "رسید خریدها، فروش‌ها، هزینه‌ها و فاکتور سفارش‌های سایت، مرتب در درایو",
     done: (s) => `${s.drive.email} — ${fa(s.drive.usage.files)} فایل` },
@@ -254,17 +254,22 @@ const FORMS = {
   },
 
   async backup(el, { onSaved }) {
-    const t = await api("/api/backup/telegram");
+    const t = await api("/api/backup/channel");
+    const name = t.via === "bale" ? "بله" : "تلگرام";
     el.innerHTML = String(html`<form class="stack s12" autocomplete="off">
-      ${!t.proxy ? html`<div class="callout warn">${icon("triangle-alert")}<div>اول «پروکسی خروجی» را تنظیم کنید؛ بدون آن تلگرام از سرور در دسترس نیست.</div></div>` : ""}
+      <div class="field"><label>پیام‌رسان</label>
+        <div class="seg" role="group"><button type="button" class="${t.via === "bale" ? "on" : ""}" data-via="bale">بله (پیشنهادی)</button>
+          <button type="button" class="${t.via === "telegram" ? "on" : ""}" data-via="telegram">تلگرام</button></div>
+        <div class="hint">از داخل ایران آپلود به سرورهای خارج بسیار کند و قطع‌شونده است؛ بله داخلی است و بدون پروکسی سریع می‌فرستد.</div></div>
+      ${t.via === "telegram" && !t.proxy ? html`<div class="callout warn">${icon("triangle-alert")}<div>اول «پروکسی خروجی» را تنظیم کنید؛ بدون آن تلگرام از سرور در دسترس نیست.</div></div>` : ""}
       <div class="steps">
-        <div class="step"><div class="s-body small">در تلگرام یک کانال <b>خصوصی</b> بسازید.</div></div>
-        <div class="step"><div class="s-body small">ربات اعلان‌ها را در کانال <b>مدیر</b> کنید (اجازه Post Messages).</div></div>
-        <div class="step"><div class="s-body small">یک پیام از همان کانال را برای ربات <b>فوروارد</b> کنید. ربات خودش کانال را تنظیم می‌کند
-          و اولین پشتیبان را می‌فرستد؛ لازم نیست شناسه کانال را بدانید. (یا «پیدا کن» را بزنید.)</div></div>
+        <div class="step"><div class="s-body small">در ${name} یک کانال <b>خصوصی</b> بسازید.</div></div>
+        <div class="step"><div class="s-body small">${t.via === "bale" ? html`در بله با <b>@botfather</b> یک ربات بسازید و توکنش را پایین بگذارید (اگر ربات اعلان‌ها بله است، خالی بگذارید).` : "ربات را در کانال مدیر کنید."}
+          ربات باید در کانال <b>مدیر</b> باشد و اجازه ارسال پیام داشته باشد.</div></div>
+        <div class="step"><div class="s-body small">یک پیام در کانال بفرستید و «پیدا کن» را بزنید تا شناسه کانال پیدا شود.</div></div>
       </div>
       <div class="field"><label>ربات</label><input class="input ltr" name="token"
-        placeholder="${t.token_set ? "ربات جدا ذخیره شده (برای تغییر، توکن جدید)" : t.uses_notify_token ? "خالی = همان ربات اعلان‌ها (پیشنهادی)" : "توکن ربات تلگرام: 123456789:ABC…"}"></div>
+        placeholder="${t.token_set ? "ربات جدا ذخیره شده (برای تغییر، توکن جدید)" : t.uses_notify_token ? "خالی = همان ربات اعلان‌ها" : `توکن ربات ${name}`}"></div>
       <div class="field"><label>کانال</label>
         <div class="row nowrap"><input class="input ltr" name="chat_id" value="${t.chat_id || ""}" placeholder="-1001234567890" style="flex:1">
           <button class="btn sm soft" type="button" data-find>${icon("search", "sm")} پیدا کن</button></div>
@@ -282,7 +287,12 @@ const FORMS = {
     const form = $("form", el);
     const body = () => ({ enabled: form.enabled.checked, chat_id: form.chat_id.value.trim(), token: form.token.value.trim(),
       hours: Number(digits(form.hours.value)) || 1 });
-    const save = () => api("/api/backup/telegram", { method: "PUT", body: body() });
+    const save = () => api("/api/backup/channel", { method: "PUT", body: body() });
+    delegate(el, "click", "[data-via]", async (e, b) => {
+      if (b.dataset.via === t.via) return;
+      await api("/api/backup/channel", { method: "PUT", body: { via: b.dataset.via } });
+      FORMS.backup(el, { onSaved });
+    });
     form.onsubmit = async (e) => {
       e.preventDefault();
       if (!form.chat_id.value.trim()) return toast("اول کانال را با «پیدا کن» انتخاب کنید", "error");
@@ -291,14 +301,14 @@ const FORMS = {
       $("[data-status]", el).textContent = "در حال ارسال…";
       try {
         await save();
-        await api("/api/backup/telegram/send", { method: "POST" });
+        await api("/api/backup/channel/send", { method: "POST" });
         toast("پشتیبان در کانال فرستاده شد ✓");
       } catch (err) { /* error toast shown; the status line below explains */ }
       finally { btn.disabled = false; onSaved?.(); FORMS.backup(el, { onSaved }); }
     };
     $("[data-find]", el).onclick = async () => {
       await save();
-      const chats = await api("/api/backup/telegram/chats");
+      const chats = await api("/api/backup/channel/chats");
       $("[data-chans]", el).innerHTML = chats.length
         ? String(html`${chats.map((c) => html`<button type="button" class="chip" data-chan="${c.id}" style="margin:4px">${c.name || c.id} <span class="ltr tiny">${c.id}</span></button>`)}`)
         : "کانالی پیدا نشد. ربات را مدیر کانال کنید، یک پیام در کانال بفرستید و دوباره بزنید.";

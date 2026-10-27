@@ -346,10 +346,12 @@ async def run_crawl(trigger: str = "schedule", only_sites: list[str] | None = No
         log.info("crawl already running, skipping")
         return None
     async with _running:
+        # a run over some sites or products is not a complete read: insights.site_reads must not trust it
+        partial = {"partial": True} if only_sites or product_ids else {}
         with db.tx() as c:
             crawl_id = c.execute(
                 "INSERT INTO crawls(started_at, status, trigger, stats) VALUES(?, 'running', ?, ?)",
-                (db.now_iso(), trigger, '{"partial": true}' if only_sites or product_ids else None)
+                (db.now_iso(), trigger, json.dumps(partial) if partial else None)
             ).lastrowid
         progress.clear()
         progress.update({"crawl_id": crawl_id, "stage": "catalog", "sites": {}})
@@ -373,7 +375,7 @@ async def run_crawl(trigger: str = "schedule", only_sites: list[str] | None = No
                 from .research import refresh_all
                 await refresh_all()
             runs = db.q("SELECT site, status FROM site_runs WHERE crawl_id=?", (crawl_id,))
-            stats = {"products": n, "sites": {r["site"]: r["status"] for r in runs}}
+            stats = {"products": n, "sites": {r["site"]: r["status"] for r in runs}, **partial}
             with db.tx() as c:
                 c.execute("UPDATE crawls SET finished_at=?, status='done', stats=? WHERE id=?",
                           (db.now_iso(), json.dumps(stats, ensure_ascii=False), crawl_id))
@@ -381,7 +383,8 @@ async def run_crawl(trigger: str = "schedule", only_sites: list[str] | None = No
             log.error("crawl failed: %s", traceback.format_exc())
             with db.tx() as c:
                 c.execute("UPDATE crawls SET finished_at=?, status='failed', stats=? WHERE id=?",
-                          (db.now_iso(), json.dumps({"error": f"{type(e).__name__}: {e}"}, ensure_ascii=False), crawl_id))
+                          (db.now_iso(), json.dumps({"error": f"{type(e).__name__}: {e}", **partial}, ensure_ascii=False),
+                           crawl_id))
         finally:
             progress["stage"] = "idle"
         return crawl_id

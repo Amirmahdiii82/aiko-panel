@@ -95,17 +95,18 @@ def product(pid: int):
     if not p:
         raise HTTPException(404)
     offers = db.q("SELECT * FROM offers WHERE product_id=? ORDER BY site, status='rejected', price", (pid,))
-    analysis = insights.analyse_product(p, [o for o in offers if o["status"] != "rejected"], insights._cutoff())
-    cutoff = insights._cutoff()
-    latest: dict[str, int] = {}
-    for o in offers:
-        if (o["last_seen"] or "") >= cutoff:
-            latest[o["site"]] = max(latest.get(o["site"], 0), o["last_crawl_id"] or 0)
+    cutoff, reads = insights._cutoff(), insights.site_reads()
+    analysis = insights.analyse_product(p, [o for o in offers if o["status"] != "rejected"], cutoff, reads=reads)
+    current = {o["id"] for o in insights.current_offers(offers, cutoff, reads)}
     for o in offers:
         o["reasons"] = json.loads(o["reasons"] or "[]")
         o["extra"] = json.loads(o["extra"] or "{}")
-        o["fresh"] = (o["last_seen"] or "") >= cutoff and (o["last_crawl_id"] or 0) == latest.get(o["site"])
-        o["counted"] = o["fresh"] and insights._offer_ok(o, p["price"])
+        o["pack"] = insights.pack_size(o["title"])
+        unit = insights.unit_price(o, p["name"])
+        o["unit_price"] = unit if unit != o["price"] else None
+        o["current"] = o["id"] in current
+        o["fresh"] = o["current"] and (o["last_seen"] or "") >= cutoff
+        o["counted"] = o["current"] and insights._offer_ok({**o, "price": unit}, p["price"])
     return {
         "product": {**p, "categories": json.loads(p["categories"] or "[]")},
         "analysis": analysis,

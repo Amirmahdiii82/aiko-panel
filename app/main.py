@@ -69,7 +69,7 @@ def create_app() -> FastAPI:
                 await mod.startup()
         if config.BACKUP_TIME:
             jobs.daily("core.backup", config.BACKUP_TIME, backup.daily_job)
-        jobs.every("core.backup.telegram", 300, backup.telegram_tick)     # sends when due (hourly by default)
+        jobs.every("core.backup.channel", 300, backup.channel_tick)       # sends when due (Telegram or Bale channel)
         jobs.supervise("core.bot", bot.loop)                               # the owners' bot answers commands
         jobs.supervise("core.drive", drive.worker)                         # receipts → the owners' Google Drive
         jobs.start()

@@ -166,16 +166,37 @@ def test_telegram_backup_goes_through_the_proxy(owner, monkeypatch):
         sent["proxied"] = True
         return httpx.AsyncClient(transport=httpx.MockTransport(handler))
     monkeypatch.setattr(integrations, "abroad_client", fake_client)
-    r = owner.put("/api/backup/telegram", json={"enabled": True, "chat_id": "-100123", "token": "123:ABC", "hours": 1},
+    r = owner.put("/api/backup/channel", json={"enabled": True, "chat_id": "-100123", "token": "123:ABC", "hours": 1},
                   headers=H)
     assert r.status_code == 200 and r.json()["token_set"]
-    assert backup.telegram_due()
-    r = owner.post("/api/backup/telegram/send", headers=H)
+    assert backup.channel_due()
+    r = owner.post("/api/backup/channel/send", headers=H)
     assert r.status_code == 200, r.text
     assert sent["proxied"] and "/bot123:ABC/sendDocument" in sent["url"] and b"PK" in sent["body"]
-    s = owner.get("/api/backup/telegram").json()
+    s = owner.get("/api/backup/channel").json()
     assert s["last_ok"] is True and "token" not in s
-    assert not backup.telegram_due()
+    assert not backup.channel_due()
+
+
+def test_backups_can_go_to_a_bale_channel_without_the_proxy(owner, monkeypatch):
+    """From inside Iran uploads abroad crawl and get cut off; Bale is domestic. Switching messenger forgets the old
+    channel (a channel id belongs to one messenger) and the zip goes straight to Bale's bot API."""
+    from app.core import activity
+    sent = {}
+    owner.put("/api/backup/channel", json={"enabled": True, "chat_id": "-100123", "token": "123:ABC"}, headers=H)
+    s = owner.put("/api/backup/channel", json={"via": "bale"}, headers=H).json()
+    assert s["via"] == "bale" and s["chat_id"] == "" and not s["token_set"]
+    monkeypatch.setattr(integrations, "abroad_client", lambda **kw: sent.setdefault("proxied", True))
+
+    def handler(request: httpx.Request):
+        sent["url"] = str(request.url)
+        return httpx.Response(200, json={"ok": True, "result": {}})
+    monkeypatch.setattr(activity, "bot_client", lambda kind, timeout=15: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+                        if kind == "bale" else None)
+    owner.put("/api/backup/channel", json={"chat_id": "5001", "token": "777:BALE"}, headers=H)
+    r = owner.post("/api/backup/channel/send", headers=H)
+    assert r.status_code == 200, r.text
+    assert sent["url"].startswith("https://tapi.bale.ai/bot777:BALE/sendDocument") and "proxied" not in sent
 
 
 def test_telegram_notifications_use_the_proxy_but_bale_does_not(monkeypatch):

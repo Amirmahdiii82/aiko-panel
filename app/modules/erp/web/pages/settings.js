@@ -179,7 +179,7 @@ function dataTab(el) {
       <p class="small muted mt8">همه محصولات، فروش‌ها، خریدها، هزینه‌ها و حساب‌ها در یک فایل اکسل (تاریخ‌ها شمسی).</p>
       <a class="btn soft mt16" href="/api/erp/export.xlsx">${icon("download")} دانلود اکسل</a></section>
     <section class="card"><h2>${icon("database")} نسخه پشتیبان</h2>
-      <p class="small muted mt8">پشتیبان همه بخش‌ها هر شب خودکار گرفته می‌شود و هر چند ساعت در کانال تلگرام هم می‌رود.</p>
+      <p class="small muted mt8">پشتیبان همه بخش‌ها هر شب خودکار گرفته می‌شود و هر چند ساعت در کانال بله یا تلگرام هم می‌رود.</p>
       ${isOwner() ? html`<a class="btn soft mt16" href="#/settings/backup">${icon("database")} پشتیبان‌ها</a>` : ""}</section>
   </div>`);
 }

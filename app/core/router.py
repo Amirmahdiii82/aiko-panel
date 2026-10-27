@@ -352,7 +352,7 @@ async def notify_chats(user=Admin):
 def setup_status(user=Admin):
     """Everything shared by the whole app in one look: what is set up, what is missing, last backup."""
     n = activity.notify_settings()
-    t = _telegram_view()
+    t = _channel_view()
     key = integrations.openrouter_key()
     w = integrations.woo_public()
     return {
@@ -495,27 +495,29 @@ def drive_disconnect(user=Admin):
     return {"ok": True}
 
 
-# ---------------------------------------------------------------- off-site backups in a Telegram channel
-def _telegram_view() -> dict:
-    s = backup.telegram_settings()
-    return {"enabled": bool(s["enabled"]), "chat_id": s["chat_id"], "hours": int(s["hours"] or 1),
+# ---------------------------------------------------------------- off-site backups in a Telegram or Bale channel
+def _channel_view() -> dict:
+    s = backup.channel_settings()
+    return {"enabled": bool(s["enabled"]), "via": s["via"], "chat_id": s["chat_id"], "hours": int(s["hours"] or 1),
             "token_set": bool((s.get("token") or "").strip()), "uses_notify_token": not (s.get("token") or "").strip()
-            and bool(backup.telegram_token(s)), "last_at": s["last_at"], "last_ok": s["last_ok"],
+            and bool(backup.channel_token(s)), "last_at": s["last_at"], "last_ok": s["last_ok"],
             "last_error": s["last_error"], "last_size": s["last_size"], "proxy": bool(integrations.proxy_url())}
 
 
-@router.get("/api/backup/telegram")
-def backup_telegram_get(user=Admin):
-    return _telegram_view()
+@router.get("/api/backup/channel")
+def backup_channel_get(user=Admin):
+    return _channel_view()
 
 
-@router.put("/api/backup/telegram")
-async def backup_telegram_save(request: Request, user=Admin):
+@router.put("/api/backup/channel")
+async def backup_channel_save(request: Request, user=Admin):
     body = await request.json()
     changes = {}
     if "enabled" in body:
         changes["enabled"] = bool(body["enabled"])
-    if "chat_id" in body:
+    if body.get("via") in backup.MESSENGERS and body["via"] != backup.channel_settings()["via"]:
+        changes.update(via=body["via"], chat_id="", token="")       # a channel and a bot belong to one messenger
+    if "chat_id" in body and "chat_id" not in changes:
         changes["chat_id"] = str(body["chat_id"] or "").strip()
     if "hours" in body:
         try:
@@ -526,32 +528,34 @@ async def backup_telegram_save(request: Request, user=Admin):
         changes["token"] = str(body["token"]).strip()
     if body.get("clear_token"):
         changes["token"] = ""
-    backup._save_telegram(changes)
-    return _telegram_view()
+    backup._save_channel(changes)
+    return _channel_view()
 
 
-@router.get("/api/backup/telegram/chats")
-async def backup_telegram_chats(user=Admin):
+@router.get("/api/backup/channel/chats")
+async def backup_channel_chats(user=Admin):
     """Channels/groups the backup bot has seen, so the owner can pick the channel id of a private channel."""
-    token = backup.telegram_token()
+    s = backup.channel_settings()
+    token, name = backup.channel_token(s), backup.MESSENGERS[s["via"]]
     if not token:
-        raise HTTPException(400, "اول توکن ربات تلگرام را ذخیره کنید")
-    seen = bot.chats_for(token, "telegram")
+        raise HTTPException(400, f"اول توکن ربات {name} را ذخیره کنید")
+    seen = bot.chats_for(token, s["via"])
     if seen is not None:
         return [c for c in seen if c["type"] in ("channel", "supergroup", "group")]
     try:
-        return await activity.bot_updates({"bot": "telegram", "token": token})
+        return await activity.bot_updates({"bot": s["via"], "token": token})
     except Exception as exc:
-        raise HTTPException(400, f"ارتباط با تلگرام برقرار نشد ({exc.__class__.__name__}) — پروکسی را بررسی کنید")
+        raise HTTPException(400, f"ارتباط با {name} برقرار نشد ({exc.__class__.__name__})"
+                                 + (" — پروکسی را بررسی کنید" if s["via"] == "telegram" else ""))
 
 
-@router.post("/api/backup/telegram/send")
-async def backup_telegram_send(user=Admin):
-    result = await backup.send_to_telegram(manual=True)
+@router.post("/api/backup/channel/send")
+async def backup_channel_send(user=Admin):
+    result = await backup.send_to_channel(manual=True)
     if not result["ok"]:
         raise HTTPException(400, result["error"])
-    activity.record(None, "core", "backup", "پشتیبان به کانال تلگرام فرستاده شد", f"توسط {user['name']}",
-                    user_id=user["id"])
+    activity.record(None, "core", "backup", f"پشتیبان به کانال {backup.MESSENGERS[backup.channel_settings()['via']]} فرستاده شد",
+                    f"توسط {user['name']}", user_id=user["id"])
     return result
 
 
@@ -569,7 +573,7 @@ def system(user=Admin):
             "modules": [{"id": m.id, "name": m.name} for m in modules.values()], "databases": dbs,
             "backups": backup.list_snapshots()[:15], "backup_keep_days": config.BACKUP_KEEP_DAYS,
             "next_backup": next_backup[0].isoformat() if next_backup else None, "public_url": config.PUBLIC_URL,
-            "telegram": _telegram_view()}
+            "telegram": _channel_view()}
 
 
 @router.post("/api/system/backup")

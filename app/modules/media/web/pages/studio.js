@@ -109,7 +109,7 @@ export async function render(view, params, { setTitle, query }) {
         </div></details>
       <div class="gen-foot">
         <div class="gen-meta"><span id="outCount"></span><span id="priceHint"></span></div>
-        <button class="btn brand lg block" id="generate">${icon("wand-sparkles")} <span id="genLabel">بساز</span></button>
+        <button class="btn primary lg block" id="generate">${icon("wand-sparkles")} <span id="genLabel">بساز</span></button>
         <div class="gen-meta"><span>هزینه این ماه: ${usd(M.config.month_spend) || "$0"}${M.config.monthly_limit_usd ? ` از ${usd(M.config.monthly_limit_usd)}` : ""}</span>
           <a class="small" href="#/media/library">کتابخانه ←</a></div>
       </div>`);
@@ -335,7 +335,7 @@ export async function render(view, params, { setTitle, query }) {
         <div class="confirm-models">${sel.map((m) => html`<div class="list-item">${provAvatar(m.id, "sm")}<div class="grow"><b>${m.name || m.id}</b><small title="${describePricing(m, 20)}">${describePricing(m, 4)}</small></div></div>`)}</div>
         <dl class="spec-list">${Object.entries(rows).map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>
       </div>`,
-      foot: html`<button class="btn brand" id="go">${icon("wand-sparkles")} بله، بساز</button><button class="btn ghost" data-close>انصراف</button>`,
+      foot: html`<button class="btn primary" id="go">${icon("wand-sparkles")} بله، بساز</button><button class="btn ghost" data-close>انصراف</button>`,
     });
     s.root.querySelector("#go").onclick = async (e) => {
       e.target.disabled = true;
@@ -351,6 +351,8 @@ export async function render(view, params, { setTitle, query }) {
       const r = await api("/api/media/generate", { method: "POST", body: { kind: st.mode, models: sel.map((m) => ({ id: m.id, name: m.name || m.id })), fields } });
       st.batch = r.items;
       drawStage();
+      // on a phone the results sit below the long composer: bring them into view
+      if (matchMedia("(max-width: 1180px)").matches) stage.scrollIntoView({ behavior: "smooth", block: "start" });
       toast(st.mode === "image" ? "در حال ساخت؛ معمولاً کمتر از یک دقیقه" : "کار ارسال شد؛ ساخت ویدیو ممکن است چند دقیقه طول بکشد (می‌توانید صفحه را ببندید)", "info", { timeout: 6000 });
       loadConfig().catch(() => {});
     } finally {

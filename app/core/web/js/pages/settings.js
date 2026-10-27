@@ -116,7 +116,7 @@ async function notifyTab(el) {
 async function backupTab(el) {
   const s = await api("/api/system");
   el.innerHTML = String(html`<div class="grid g2">
-    ${formCard("backup", "send", "پشتیبان در کانال تلگرام")}
+    ${formCard("backup", "send", "پشتیبان در کانال (بله یا تلگرام)")}
     <section class="card">
       <div class="card-head"><h2>${icon("database")} پشتیبان روی سرور</h2><span class="spacer"></span>
         <button class="btn sm soft" id="now">${icon("database", "sm")} همین الان</button>

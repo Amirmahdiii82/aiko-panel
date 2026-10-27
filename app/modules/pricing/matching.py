@@ -32,7 +32,7 @@ _VARIANT_PATTERNS = {
     "waterproof": re.compile(r"waterproof|واترپروف|ضد\s*اب|water\s*proof"),
     "mini": re.compile(r"\bmini\b|مینی|\btravel\b|سفری"),
     "tester": re.compile(r"tester|تستر"),
-    "set": re.compile(r"\bset\b|\bست\b|\bkit\b|کیت|\bپک\b|\bpack\b|باندل|bundle|\bجفتی\b"),
+    "set": re.compile(r"\bset\b|\bست\b|\bkit\b|کیت|\bپک\b|\bpack\b|باندل|bundle|\bجفتی\b|\bبه همراه\b"),
     "refill": re.compile(r"refill|ریفیل|یدک"),
 }
 
@@ -56,6 +56,8 @@ _TYPES = {
     "sunscreen": ["ضد افتاب", "sunscreen", "sunblock"], "oil": ["روغن", "oil"],
     "scrub": ["اسکراب", "لایه بردار", "scrub", "peeling"], "soap": ["صابون", "soap"], "shaver": ["شیور", "ریش تراش"],
     "fixer": ["اسپری فیکس", "فیکساتور", "setting spray"], "remover": ["ریموور", "remover"],
+    "cleansing_brush": ["برس پاک کننده", "برس صورت", "برس شستشو", "فیس براش", "cleansing brush"],
+    "brush": ["براش", "برس", "brush"],
 }
 _TYPE_PHRASES = sorted(((tn.normalize(ph), t) for t, phs in _TYPES.items() for ph in phs), key=lambda x: -len(x[0]))
 # Attribute groups: if both titles name a value from the same group and they differ, it is another SKU.
@@ -63,6 +65,12 @@ _ATTR_GROUPS = {
     "skin": {"چرب": "oily", "oily": "oily", "خشک": "dry", "dry": "dry", "حساس": "sensitive", "sensitive": "sensitive",
              "مختلط": "combo", "combination": "combo", "نرمال": "normal", "normal": "normal"},
     "texture": {"مایع": "liquid", "liquid": "liquid", "جامد": "solid", "stick": "solid", "پودری": "powder"},
+    # black and brown mascara are two SKUs; a palette names several colours, so any shared one is enough
+    "color": {"مشکی": "black", "black": "black", "قهوه": "brown", "brown": "brown", "صورتی": "pink", "pink": "pink",
+              "سفید": "white", "white": "white", "قرمز": "red", "red": "red", "زرشکی": "maroon", "بنفش": "purple",
+              "purple": "purple", "سبز": "green", "green": "green", "ابی": "blue", "blue": "blue", "نود": "nude",
+              "nude": "nude", "بیرنگ": "clear", "شفاف": "clear", "clear": "clear", "transparent": "clear",
+              "رنگی": "colored"},
 }
 
 
@@ -76,7 +84,7 @@ def product_types(norm: str) -> set[str]:
 
 
 def _attrs(norm: str) -> dict[str, set[str]]:
-    words = set(norm.split())
+    words = set(re.sub(r"(?<![\u0600-\u06FF])بی\s+رنگ(?![\u0600-\u06FF])", "بیرنگ", norm).split())
     return {g: {v for w, v in m.items() if w in words} for g, m in _ATTR_GROUPS.items()}
 
 
@@ -263,8 +271,12 @@ class Matcher:
                     score *= 0.35
                     reasons.append(f"برند متفاوت ({other})")
                 else:
-                    # could be another brand's product with the same model name: never auto-count it
-                    score = min(score * 0.92, MATCH_AUTO_CAP)
+                    # could be another brand's product with the same model name: never auto-count it.
+                    # Without the brand, only a distinctive model word ("Sky High", "فرشته") says it is ours;
+                    # people rejected nine in ten of those that matched on description alone.
+                    model_hit = any(self.weight(t) > 1.5 and len(t) > 2 and max(
+                        (_token_sim(t, d) for d in theirs_c), default=0.0) >= 0.86 for t in mine_c)
+                    score = min(score * (0.92 if model_hit else 0.72), MATCH_AUTO_CAP)
                     reasons.append("برند در عنوان رقیب نیامده")
 
         # Size
@@ -305,9 +317,10 @@ class Matcher:
 
         # Skin type / texture
         a_own, a_c = _attrs(own_norm), _attrs(cand_norm)
-        for group, label in (("skin", "نوع پوست متفاوت"), ("texture", "بافت متفاوت")):
+        for group, label, factor in (("skin", "نوع پوست متفاوت", 0.65), ("texture", "بافت متفاوت", 0.65),
+                                     ("color", "رنگ متفاوت", 0.75)):
             if a_own[group] and a_c[group] and not (a_own[group] & a_c[group]):
-                score *= 0.65
+                score *= factor
                 reasons.append(label)
 
         # Variant words (waterproof, mini, tester, set, refill)

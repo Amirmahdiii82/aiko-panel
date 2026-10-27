@@ -225,7 +225,11 @@ export function lineOptions(c, tickFmt, labelFn) {
 
 // ---------------------------------------------------------------- product detail (side sheet)
 export function insightBox(a) {
-  const site = a.cheapest_site ? siteName(a.cheapest_site) : "";
+  const box = verdict(a);
+  return a.stale ? html`${box}<div class="callout warn">${icon("clock")}<div>این مقایسه بر اساس قیمت‌هایی است که ${ago(a.as_of)} خوانده شده‌اند؛ ممکن است تغییر کرده باشند.</div></div>` : box;
+}
+function verdict(a) {
+  const site = a.cheapest_site ? `${siteName(a.cheapest_site)}${a.cheapest_pack > 1 ? `، هر عدد از بسته ${n(a.cheapest_pack)}تایی` : ""}` : "";
   if (a.position === "far_above")
     return html`<div class="callout bad">${icon("trending-down")}<div>قیمت شما <b>${pc(a.gap_min_pct, false)} بیشتر</b> از ارزان‌ترین رقیب (${site}، ${n(a.min)} تومان) است.
       برای هم‌قیمت شدن باید حدود <b>${n(a.my_price - a.min)} تومان</b> کم کنید؛ یا اگر خدمات/اصالت بهتری دارید، آن را در صفحه محصول برجسته کنید.</div></div>`;
@@ -258,8 +262,9 @@ function sellersTable(sellers, mine = true) {
 function offerRow(o, my) {
   const notes = [];
   if (!o.fresh) notes.push(html`<span class="badge">قدیمی: ${ago(o.last_seen)}</span>`);
-  else if (!o.in_stock) notes.push(html`<span class="badge">ناموجود</span>`);
-  else if (o.status === "auto" && !o.counted) notes.push(html`<span class="badge warn" title="قیمت خیلی دور از قیمت شماست؛ تا تأیید نکنید شمرده نمی‌شود">قیمت مشکوک</span>`);
+  if (o.current && !o.in_stock) notes.push(html`<span class="badge">ناموجود</span>`);
+  else if (o.current && !o.counted && (o.status === "auto" || o.status === "confirmed"))
+    notes.push(html`<span class="badge warn" title="${o.status === "confirmed" ? "قیمت چند برابر یا کمتر از نصف قیمت شماست (مثلاً نسخه اورجینال وارداتی)؛ در مقایسه شمرده نمی‌شود" : "قیمت خیلی دور از قیمت شماست؛ تا تأیید نکنید شمرده نمی‌شود"}">قیمت مشکوک</span>`);
   const disc = o.regular_price && o.price && o.regular_price > o.price ? Math.round((1 - o.price / o.regular_price) * 100) : 0;
   return html`<div class="offer ${o.status === "rejected" ? "rejected" : ""}">
     <div style="min-width:0">
@@ -273,16 +278,18 @@ function offerRow(o, my) {
       </div>
     </div>
     <div class="offer-price"><b class="num">${n(o.price)}</b>${disc ? html` <span class="badge bad">${n(disc)}٪ تخفیف</span>` : ""}
-      ${my && o.price ? html`<div class="small muted">${o.price < my ? "ارزان‌تر از شما" : o.price > my ? "گران‌تر از شما" : "هم‌قیمت"}</div>` : ""}</div>
+      ${o.unit_price ? html`<div class="small muted">بسته ${n(o.pack)}تایی · هر عدد <b class="num">${n(o.unit_price)}</b></div>` : ""}
+      ${my && o.price ? html`<div class="small muted">${unitOf(o) < my ? "ارزان‌تر از شما" : unitOf(o) > my ? "گران‌تر از شما" : "هم‌قیمت"}</div>` : ""}</div>
     ${canEdit() ? html`<div class="row nowrap" style="gap:6px">
       <button class="btn sm icon ok-btn ${o.status === "confirmed" ? "on" : ""}" data-oid="${o.id}" data-st="confirmed" title="همین محصول است">${icon("check", "sm")}</button>
       <button class="btn sm icon no-btn ${o.status === "rejected" ? "on" : ""}" data-oid="${o.id}" data-st="rejected" title="محصول دیگری است">${icon("x", "sm")}</button>
     </div>` : html`<span></span>`}
   </div>${sellersTable(o.extra?.sellers)}`;
 }
+const unitOf = (o) => o.unit_price || o.price;
 function siteGroup(site, offers, my) {
   const counted = offers.filter((o) => o.counted);
-  const min = counted.length ? Math.min(...counted.map((o) => o.price)) : null;
+  const min = counted.length ? Math.min(...counted.map(unitOf)) : null;
   return html`<div class="site-group">
     <div class="site-head"><b>${siteName(site)}</b>
       <span class="small muted">${min ? html`ارزان‌ترین: <b class="num">${n(min)}</b> ${my ? gapBadge(Math.round(((my - min) / min) * 1000) / 10) : ""}` : "آگهی معتبر موجود نیست"} · ${n(offers.length)} آگهی</span></div>

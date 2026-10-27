@@ -138,6 +138,10 @@ button.kpi:active { transform: scale(.98); }
   .p-hero { gap: 14px; }
   .p-hero-main { padding: 20px; border-radius: 26px; }
   .p-hero-value { font-size: 46px; }
+  /* four numbers in a 2x2 block instead of four full-width cards */
+  .p-hero .grid.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .p-hero .kpi .k-label { font-size: 12px; }
+  .p-hero .kpi .k-foot { font-size: 11px; }
   .kv { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .review-card { grid-template-columns: minmax(0, 1fr); }
   .rv-vs { padding: 6px; }

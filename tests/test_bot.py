@@ -60,23 +60,23 @@ def test_forwarding_a_channel_message_sets_the_backup_channel(owner, monkeypatch
     sent = []
 
     async def fake_send(manual=False):
-        sent.append(backup.telegram_settings()["chat_id"])
+        sent.append(backup.channel_settings()["chat_id"])
         return {"ok": True, "error": "", "size": 1000}
-    monkeypatch.setattr(backup, "send_to_telegram", fake_send)
+    monkeypatch.setattr(backup, "send_to_channel", fake_send)
     api = FakeApi()
     _run(api, _msg("سلام", forward_origin={"type": "channel", "chat": {"id": -100777, "type": "channel", "title": "Aiko Backup"}}))
-    t = backup.telegram_settings()
+    t = backup.channel_settings()
     assert t["chat_id"] == "-100777" and t["enabled"] and sent == ["-100777"]
     assert "Aiko Backup" in api.sent[-1][1]
     # the channels the bot saw are what the panel's "find" button shows
-    assert any(c["id"] == "-100777" for c in owner.get("/api/backup/telegram/chats").json())
+    assert any(c["id"] == "-100777" for c in owner.get("/api/backup/channel/chats").json())
 
 
 def test_channel_where_the_bot_cannot_post_is_refused(owner):
     _setup(owner)
     api = FakeApi(member_status="member")
     _run(api, _msg("x", forward_origin={"type": "channel", "chat": {"id": -100888, "type": "channel", "title": "C"}}))
-    assert backup.telegram_settings()["chat_id"] == "" and "Post Messages" in api.sent[-1][1]
+    assert backup.channel_settings()["chat_id"] == "" and "Post Messages" in api.sent[-1][1]
 
 
 def test_made_admin_of_a_channel_becomes_the_backup_channel(owner, monkeypatch):
@@ -84,14 +84,14 @@ def test_made_admin_of_a_channel_becomes_the_backup_channel(owner, monkeypatch):
 
     async def fake_send(manual=False):
         return {"ok": True, "error": "", "size": 1}
-    monkeypatch.setattr(backup, "send_to_telegram", fake_send)
+    monkeypatch.setattr(backup, "send_to_channel", fake_send)
     def added_by(uid, cid):
         return {"update_id": 2, "my_chat_member": {"chat": {"id": cid, "type": "channel", "title": "B"}, "from": {"id": uid},
                                                    "new_chat_member": {"status": "administrator"}}}
     _run(FakeApi(), added_by(123456, -100555))          # a stranger adds the bot to THEIR channel: never adopted
-    assert backup.telegram_settings()["chat_id"] == ""
+    assert backup.channel_settings()["chat_id"] == ""
     _run(FakeApi(), added_by(OWNER, -100999))           # an owner adds it: that is the backup channel
-    assert backup.telegram_settings()["chat_id"] == "-100999"
+    assert backup.channel_settings()["chat_id"] == "-100999"
     assert db.core.get_setting("bot_seen_chats")[0]["id"] == "-100999"
 
 

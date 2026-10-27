@@ -37,3 +37,55 @@ def test_offer_review_flow(owner):
     assert owner.get("/api/pricing/review").json()["total"] == 0
     detail = owner.get("/api/pricing/products/1").json()
     assert detail["offers"][0]["status"] == "confirmed"
+
+
+def _ago(days: float) -> str:
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(days=days)).replace(microsecond=0).isoformat()
+
+
+def test_old_prices_are_used_and_flagged_instead_of_reading_as_no_competitor(owner):
+    """No crawl for days (no schedule, a deploy...) must not turn every product into "بدون رقیب"."""
+    pricing_db = modules.loaded["pricing"].databases[0]
+    with pricing_db.tx() as con:
+        con.execute("INSERT INTO products (id, name, price, in_stock, active, tracked) VALUES (1, 'ریمل اسنس', 300000, 1, 1, 1)")
+        con.execute("INSERT INTO crawls (id, started_at, finished_at, status) VALUES (1, ?, ?, 'done'), (2, ?, ?, 'done')",
+                    (_ago(9), _ago(9), _ago(5), _ago(5)))
+        con.execute("INSERT INTO site_runs (crawl_id, site, status) VALUES (1, 'digikala', 'ok'), (2, 'digikala', 'ok')")
+        offer = """INSERT INTO offers (product_id, site, external_id, title, score, status, price, in_stock, reasons, extra,
+                       last_seen, last_crawl_id) VALUES (1, 'digikala', ?, 'ریمل اسنس', 0.9, 'auto', ?, 1, '[]', '{}', ?, ?)"""
+        con.execute(offer, ("seen-last-read", 250000, _ago(5), 2))
+        con.execute(offer, ("gone-since", 100000, _ago(9), 1))       # not in the latest read: no longer listed
+    a = owner.get("/api/pricing/products/1").json()["analysis"]
+    assert a["position"] == "far_above" and a["min"] == 250000 and a["stale"] is True
+    s = owner.get("/api/pricing/summary").json()
+    assert s["stale"] == 1 and s["as_of"]
+
+
+def test_multipacks_compare_per_piece_and_far_off_confirmed_prices_are_left_out(owner):
+    pricing_db = modules.loaded["pricing"].databases[0]
+    with pricing_db.tx() as con:
+        con.execute("INSERT INTO products (id, name, price, in_stock, active, tracked) VALUES (1, 'اسفنج آرایشی تخم مرغی', 80000, 1, 1, 1)")
+        offer = """INSERT INTO offers (product_id, site, external_id, title, score, status, price, in_stock, reasons, extra,
+                       last_seen, last_crawl_id) VALUES (1, ?, ?, ?, 0.7, 'confirmed', ?, 1, '[]', '{}', ?, 1)"""
+        con.execute(offer, ("digikala", "pack", "پد آرایشی مدل تخم مرغی مجموعه 2 عددی", 150000, db.utcnow()))
+        con.execute(offer, ("basalam", "original", "اسفنج آرایشی تخم مرغی اورجینال", 450000, db.utcnow()))
+    d = owner.get("/api/pricing/products/1").json()
+    assert d["analysis"]["min"] == 75000 and d["analysis"]["n_sites"] == 1 and d["analysis"]["n_suspicious"] == 1
+    pack = next(o for o in d["offers"] if o["external_id"] == "pack")
+    assert pack["unit_price"] == 75000 and pack["pack"] == 2 and pack["counted"]
+
+
+def test_matcher_tells_colours_apart_and_distrusts_brandless_lookalikes():
+    from app.modules.pricing.matching import Candidate, Matcher, Own
+    from app.modules.pricing import config
+    m = Matcher(["خط چشم ماژیکی قهوه ای هدی بیوتی", "ریمل قهوه ای آرت اسکین مدل Sky High", "لیپ تینت پپتاید روود Rhode"])
+    c = lambda t: Candidate("basalam", "1", t, "", 100000)
+    brown = Own(1, "خط چشم ماژیکی قهوه‌ای هدی بیوتی Huda Beauty", "Huda Beauty")
+    assert m.score(brown, c("خط چشم ماژیکی قهوه ای هدی بیوتی Huda Beauty"))[0] >= config.MATCH_AUTO
+    score, reasons = m.score(brown, c("خط چشم ماژیکی مشکی هدی بیوتی Huda Beauty"))
+    assert score < config.MATCH_AUTO and "رنگ متفاوت" in reasons
+    # the model name still carries a brandless listing to the review queue; a bare description does not
+    sky = Own(2, "ریمل قهوه‌ای آرت اسکین (Artskin) مدل Sky High", "Artskin")
+    assert m.score(sky, c("ریمل قهوه ای sky high"))[0] >= config.MATCH_REVIEW
+    assert m.score(sky, c("ریمل قهوه ای حجم دهنده"))[0] < config.MATCH_REVIEW

@@ -1,16 +1,22 @@
 """Turns raw offers into answers: where am I expensive, where can I earn more, what changed."""
 import json
+import re
 import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from . import db, sources
+from . import textnorm as tn
 
 STALE_HOURS = 30          # two crawls a day; tolerate one missed run
+MAX_AGE_DAYS = 14         # older than this a price says nothing about today's market
 CLOSE_PCT = 3.0           # within 3% of the cheapest = competitive
 FAR_PCT = 10.0            # more than 10% above the cheapest = at risk
 HEADROOM_PCT = 5.0        # cheapest by more than 5% = room to raise
 SANITY_LOW, SANITY_HIGH = 0.5, 2.0   # auto matches outside this band vs. my price are suspicious
+# a confirmed listing is the same product, but at 5x our price it is another market (imported original, gift box...)
+CONFIRMED_LOW, CONFIRMED_HIGH = 0.4, 2.5
+MAX_PACK = 12             # "بسته ۷۰ عددی" pads are the product itself, not a multipack
 
 POSITIONS = {
     "cheapest": "ارزان‌ترین",
@@ -35,35 +41,82 @@ def excluded_sites() -> set[str]:
     return set(db.get_setting("stats_excluded_sites", []) or [])
 
 
+_PACK_RE = re.compile(r"\b(?:مجموعه|بسته|پک|pack of|pack)\s*(\d+)\s*(?:عددی|عدد|تایی|تا|pcs)?\b|\b(\d+)\s*(?:pack|pk)\b")
+
+
+def pack_size(title: str | None) -> int:
+    """How many of the item a listing sells: 'مجموعه ۲ عددی' -> 2. 1 when it does not say."""
+    m = _PACK_RE.search(tn.normalize(title))
+    n = int(m.group(1) or m.group(2)) if m else 1
+    return n if 2 <= n <= MAX_PACK else 1
+
+
+def unit_price(o: dict, own_name: str | None) -> int | None:
+    """The offer's price for the quantity we sell, so a 2-pack is compared per piece.
+
+    Only for single items of ours: in '8 تکه' brush sets or 'ست' bundles the number is the content."""
+    if not o.get("price"):
+        return o.get("price")
+    theirs = pack_size(o.get("title"))
+    if theirs == 1 or tn.counts(own_name or "") or re.search(r"\bست\b|\bset\b", tn.normalize(own_name)):
+        return o["price"]
+    return round(o["price"] * pack_size(own_name) / theirs)
+
+
 def _offer_ok(o: dict, my_price: int | None) -> bool:
     if o["status"] not in ("auto", "confirmed") or not o["price"] or not o["in_stock"]:
         return False
-    if o["status"] == "auto" and my_price:
-        ratio = o["price"] / my_price
-        if ratio < SANITY_LOW or ratio > SANITY_HIGH:
+    if my_price:
+        low, high = (SANITY_LOW, SANITY_HIGH) if o["status"] == "auto" else (CONFIRMED_LOW, CONFIRMED_HIGH)
+        if not low <= o["price"] / my_price <= high:
             return False
     return True
 
 
-def analyse_product(p: dict, offers: list[dict], cutoff: str, excluded: set[str] | None = None) -> dict:
-    my = p["price"] if p["in_stock"] else None
-    excluded = excluded_sites() if excluded is None else excluded
-    fresh = [o for o in offers if (o["last_seen"] or "") >= cutoff and o["site"] not in excluded]
+def site_reads() -> dict[str, str]:
+    """Per competitor, when its latest complete read started (a site that finished, in a run over all products).
+
+    A listing seen then or later is current; one not seen since was gone from the site's results."""
+    return {r["site"]: r["ts"] for r in db.q(
+        """SELECT r.site, MAX(c.started_at) ts FROM site_runs r JOIN crawls c ON c.id = r.crawl_id
+           WHERE r.status IN ('ok', 'partial') AND json_extract(COALESCE(c.stats, '{}'), '$.partial') IS NULL
+           GROUP BY r.site""")}
+
+
+def current_offers(offers: list[dict], cutoff: str, reads: dict[str, str] | None = None) -> list[dict]:
+    """The listings that describe the market now: per site, those seen in its latest read.
+
+    When reads stop (no schedule, a site blocking us) the last known prices stay in use for MAX_AGE_DAYS and
+    are reported as stale, instead of the product silently turning into "no competitor"."""
+    reads = site_reads() if reads is None else reads
+    oldest = (datetime.now(timezone.utc) - timedelta(days=MAX_AGE_DAYS)).replace(microsecond=0).isoformat()
+    out = [o for o in offers if (o["last_seen"] or "") >= max(min(reads.get(o["site"], cutoff), cutoff), oldest)]
     # per site, only the listings seen in that site's latest observation of this product
     latest: dict[str, int] = {}
-    for o in fresh:
+    for o in out:
         latest[o["site"]] = max(latest.get(o["site"], 0), o["last_crawl_id"] or 0)
-    fresh = [o for o in fresh if (o["last_crawl_id"] or 0) == latest[o["site"]]]
+    return [o for o in out if (o["last_crawl_id"] or 0) == latest[o["site"]]]
+
+
+def analyse_product(p: dict, offers: list[dict], cutoff: str, excluded: set[str] | None = None,
+                    reads: dict[str, str] | None = None) -> dict:
+    my = p["price"] if p["in_stock"] else None
+    excluded = excluded_sites() if excluded is None else excluded
+    offers = [{**o, "price": unit_price(o, p["name"]), "listed_price": o["price"]} for o in offers if o["site"] not in excluded]
+    fresh = current_offers(offers, cutoff, reads)
     valid = [o for o in fresh if _offer_ok(o, p["price"])]
-    suspicious = [o for o in fresh if o["status"] == "auto" and o["price"] and o["in_stock"] and not _offer_ok(o, p["price"])]
+    suspicious = [o for o in fresh if o["status"] in ("auto", "confirmed") and o["price"] and o["in_stock"]
+                  and not _offer_ok(o, p["price"])]
     matched_oos = [o for o in fresh if o["status"] in ("auto", "confirmed") and not o["in_stock"]]
+    as_of = min((o["last_seen"] for o in valid), default=None)
 
     by_site: dict[str, dict] = {}
     for o in valid:
         cur = by_site.get(o["site"])
         if cur is None or o["price"] < cur["price"]:
             by_site[o["site"]] = {"site": o["site"], "price": o["price"], "url": o["url"], "seller": o["seller"],
-                                  "regular_price": o["regular_price"]}
+                                  "regular_price": o["regular_price"], "seen": o["last_seen"],
+                                  "pack": pack_size(o["title"]) if o["price"] != o["listed_price"] else 1}
     site_mins = sorted(by_site.values(), key=lambda s: s["price"])
     comps = [s["price"] for s in site_mins]
 
@@ -72,10 +125,11 @@ def analyse_product(p: dict, offers: list[dict], cutoff: str, excluded: set[str]
         "categories": json.loads(p["categories"] or "[]"), "my_price": p["price"], "my_regular": p["regular_price"],
         "in_stock": bool(p["in_stock"]), "tracked": bool(p["tracked"]),
         "n_sites": len(site_mins), "n_listings": len(valid), "n_pending": sum(1 for o in offers if o["status"] == "pending"),
-        "n_suspicious": len(suspicious),
+        "n_suspicious": len(suspicious), "as_of": as_of, "stale": bool(as_of and as_of < cutoff),
         "min": comps[0] if comps else None, "median": int(statistics.median(comps)) if comps else None,
         "max": comps[-1] if comps else None, "cheapest_site": site_mins[0]["site"] if site_mins else None,
         "cheapest_url": site_mins[0]["url"] if site_mins else None,
+        "cheapest_pack": site_mins[0]["pack"] if site_mins else 1,
         "sites": site_mins, "index": None, "gap_min_pct": None, "rank": None, "position": None,
         "opportunity": None, "suggested_price": None, "impact": 0,
     }
@@ -119,8 +173,8 @@ def analyse_all(include_untracked: bool = False) -> list[dict]:
     offers = defaultdict(list)
     for o in db.q("SELECT * FROM offers WHERE status != 'rejected'"):
         offers[o["product_id"]].append(o)
-    excluded = excluded_sites()
-    return [analyse_product(p, offers[p["id"]], cutoff, excluded) for p in products]
+    excluded, reads = excluded_sites(), site_reads()
+    return [analyse_product(p, offers[p["id"]], cutoff, excluded, reads) for p in products]
 
 
 def summary() -> dict:
@@ -154,6 +208,9 @@ def summary() -> dict:
         "risk": risk_list[:12],
         "competitors_oos": oos_list[:12],
         "pending_reviews": db.q1("SELECT COUNT(*) n FROM offers WHERE status='pending'")["n"],
+        # the numbers above lean on prices older than a day: say so, and since when
+        "stale": sum(1 for r in compared if r["stale"]),
+        "as_of": min((r["as_of"] for r in compared if r["as_of"]), default=None),
         "last_crawl": last,
         "running": running,
         "index_history": index_history(),
@@ -224,12 +281,13 @@ def index_history(limit: int = 60) -> list[dict]:
             my[r["crawl_id"]][r["product_id"]] = r["price"]
     obs = defaultdict(list)  # crawl -> observations
     for r in db.q(
-        """SELECT op.crawl_id, op.price, op.in_stock, op.ts, o.status, o.product_id, o.site
+        """SELECT op.crawl_id, op.price, op.in_stock, op.ts, o.status, o.product_id, o.site, o.title
            FROM offer_prices op JOIN offers o ON o.id=op.offer_id
            WHERE op.crawl_id >= ? AND o.status IN ('auto','confirmed')""", (first_id,)):
         if r["site"] not in excluded:
             obs[r["crawl_id"]].append(r)
 
+    names = {r["id"]: r["name"] for r in db.q("SELECT id, name FROM products")}
     state: dict[tuple, tuple[int, str, list]] = {}  # (product, site) -> (crawl_id, ts, observations)
     done_ids = {c["id"] for c in crawls}
     all_ids = sorted(set(obs) | done_ids)
@@ -249,6 +307,7 @@ def index_history(limit: int = 60) -> list[dict]:
             mine = my[cid].get(pid)
             if not mine or ts < cutoff:
                 continue
+            rows = [{**r, "price": unit_price(r, names.get(pid))} for r in rows]
             vals = [r["price"] for r in rows if _offer_ok(r, mine)]
             if vals:
                 site_min[pid][site] = min(vals)

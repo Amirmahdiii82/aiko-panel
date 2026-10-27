@@ -28,7 +28,7 @@ export async function render(view, params, { setTitle }) {
       view.innerHTML = String(html`<div class="stack pricing">${statusCard}
         <section class="card">${emptyState("search", "هنوز قیمتی خوانده نشده",
           `با «بروزرسانی قیمت‌ها» محصولات ${m.own.url} و قیمت ${n(enabled)} رقیب خوانده می‌شود. اولین اجرا بسته به تعداد محصولات ممکن است طول بکشد.`,
-          canEdit() ? html`<button class="btn brand" data-crawl>${icon("refresh-cw", "sm")} شروع اولین بروزرسانی</button>` : "")}</section></div>`);
+          canEdit() ? html`<button class="btn primary" data-crawl>${icon("refresh-cw", "sm")} شروع اولین بروزرسانی</button>` : "")}</section></div>`);
       return;
     }
     const idx = s.median_index;
@@ -43,6 +43,9 @@ export async function render(view, params, { setTitle }) {
 
     view.innerHTML = String(html`<div class="stack pricing">
       ${statusCard}
+      ${s.stale ? html`<div class="callout warn">${icon("clock")}<div style="flex:1">
+        <b>${n(s.stale)} محصول با قیمت‌های قدیمی رقبا مقایسه شده‌اند</b> (قدیمی‌ترین: ${ago(s.as_of)}). قیمت رقبا ممکن است عوض شده باشد؛ قبل از تصمیم، بروزرسانی کنید.
+        ${!P.meta.schedule.length ? raw(` بروزرسانی خودکار خاموش است؛ <a href="#/settings/pricing">زمان‌بندی روزانه</a> بگذارید تا این اتفاق نیفتد.`) : ""}</div></div>` : ""}
       <section class="p-hero">
         <div class="p-hero-main">
           <div class="p-hero-label">شاخص قیمت شما <span class="muted small">(۱۰۰ = میانه بازار)</span></div>

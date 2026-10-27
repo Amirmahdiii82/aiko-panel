@@ -248,6 +248,12 @@ async def _continue_flow(api: _Api, chat_id, state: dict, *, text=None, data=Non
 async def _set_channel(api: _Api, chat: dict, bot_id: int, reply_to=None) -> None:
     """Make `chat` the backup channel if the bot may post there, then send the first backup."""
     title = chat.get("title") or str(chat.get("id"))
+    via = backup.channel_settings()["via"]
+    if via != (activity.notify_settings().get("bot") or "bale"):        # backups go to the other messenger
+        if reply_to:
+            await api.send(reply_to, f"پشتیبان‌ها به کانالی در {backup.MESSENGERS[via]} فرستاده می‌شوند، نه اینجا. "
+                                     "کانال را در پنل: تنظیمات ← پشتیبان تنظیم کنید.")
+        return
     member = await api.call("getChatMember", chat_id=chat["id"], user_id=bot_id)
     res = member.get("result") or {}
     can_post = res.get("status") == "creator" or (res.get("status") == "administrator" and res.get("can_post_messages", True))
@@ -256,10 +262,10 @@ async def _set_channel(api: _Api, chat: dict, bot_id: int, reply_to=None) -> Non
             await api.send(reply_to, f"⛔️ در کانال «{title}» اجازه ارسال پیام ندارم.\n"
                                      "کانال ← Administrators ← این ربات ← «Post Messages» را روشن کنید و دوباره پیامی فوروارد کنید.")
         return
-    backup._save_telegram({"chat_id": str(chat["id"]), "enabled": True})
+    backup._save_channel({"chat_id": str(chat["id"]), "enabled": True})
     activity.record(None, "core", "backup", f"کانال پشتیبان تنظیم شد: {title}", "از طریق ربات")
     await api.send(chat["id"], "✅ این کانال برای پشتیبان خودکار پنل آیکو تنظیم شد. هر ساعت یک فایل از همه داده‌ها اینجا می‌آید.")
-    result = await backup.send_to_telegram(manual=True)
+    result = await backup.send_to_channel(manual=True)
     if reply_to:
         await api.send(reply_to, f"✅ کانال «{title}» برای پشتیبان تنظیم شد و "
                                  + ("اولین پشتیبان فرستاده شد. از این به بعد هر ساعت خودکار." if result["ok"]
@@ -272,15 +278,15 @@ async def _run_command(api: _Api, chat_id, cmd: str) -> None:
     elif cmd == "status":
         await api.send(chat_id, await asyncio.to_thread(_status_text), reply_markup=keyboard())
     elif cmd == "backup":
-        if not backup.telegram_settings()["chat_id"]:
+        if not backup.channel_settings()["chat_id"]:
             await api.send(chat_id, "کانال پشتیبان هنوز تنظیم نشده. «📣 کانال پشتیبان» را بزنید.")
             return
         await api.send(chat_id, "⏳ در حال گرفتن پشتیبان…")
-        r = await backup.send_to_telegram(manual=True)
+        r = await backup.send_to_channel(manual=True)
         await api.send(chat_id, f"✅ پشتیبان ({r['size'] / 1048576:.2f} MB) در کانال فرستاده شد." if r["ok"]
                        else f"❌ ناموفق: {r['error']}")
     elif cmd == "channel":
-        t = backup.telegram_settings()
+        t = backup.channel_settings()
         now = f"کانال فعلی: {t['chat_id']}\n\n" if t["chat_id"] else ""
         await api.send(chat_id, now + "۱) مرا در کانال پشتیبان «مدیر» کنید (اجازه Post Messages).\n"
                                       "۲) یک پیام از همان کانال را برای من فوروارد کنید.\n"
@@ -353,7 +359,7 @@ async def handle(api: _Api, upd: dict, bot_id: int) -> None:
         # an OWNER made the bot admin of a channel and none is set yet: that is the backup channel.
         # (Anyone can add a bot to their own channel; backups must never follow a stranger.)
         if (chat.get("type") == "channel" and new == "administrator" and _allowed((m.get("from") or {}).get("id"))
-                and not backup.telegram_settings()["chat_id"]):
+                and not backup.channel_settings()["chat_id"]):
             await _set_channel(api, chat, bot_id)
         return
     if "channel_post" in upd:
@@ -402,7 +408,7 @@ async def loop() -> None:
         if token != token_seen:
             bot_id, token_seen = None, token
         try:
-            async with activity.bot_client(kind, timeout=70) as client:
+            async with activity.bot_client(kind, timeout=45) as client:
                 api = _Api(client, base.format(token=token))
                 if bot_id is None:
                     me = await api.call("getMe")
@@ -412,7 +418,8 @@ async def loop() -> None:
                         continue
                     bot_id = me["result"]["id"]
                 offset = db.core.get_setting("bot_offset", 0) or 0
-                r = await api.call("getUpdates", offset=offset, timeout=50, allowed_updates=ALLOWED_UPDATES)
+                # 25 s: a connection left idle longer across the border tends to be cut
+                r = await api.call("getUpdates", offset=offset, timeout=25, allowed_updates=ALLOWED_UPDATES)
                 updates = (r.get("result") or []) if r.get("ok") else []
                 if not r.get("ok"):
                     log.warning("getUpdates failed: %s", r.get("description"))

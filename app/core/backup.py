@@ -16,7 +16,7 @@ import zipfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import config, db, integrations, jalali
+from . import activity, config, db, integrations, jalali
 
 log = logging.getLogger("aiko.backup")
 
@@ -93,31 +93,37 @@ def list_snapshots() -> list[dict]:
     return out
 
 
-# ---------------------------------------------------------------- off-site copy in a Telegram channel
-TELEGRAM_API = "https://api.telegram.org/bot{token}/"
-TELEGRAM_PART = 45 * 1024 * 1024          # bots may upload up to 50 MB per file
-DEFAULT_TELEGRAM = {"enabled": False, "token": "", "chat_id": "", "hours": 1, "last_at": "", "last_ok": None,
-                    "last_error": "", "last_size": 0}
+# ---------------------------------------------------------------- off-site copy in a Telegram or Bale channel
+# Bale is the choice from inside Iran: uploads from Iran to servers abroad are throttled to a few KB/s and cut off
+# (2026-10), so even a small zip rarely reaches Telegram, while Bale is domestic and needs no proxy.
+MESSENGERS = {"telegram": "تلگرام", "bale": "بله"}
+PART_BYTES = {"telegram": 45 * 1024 * 1024, "bale": 19 * 1024 * 1024}     # each bot API's upload limit, with room
+SETTINGS_KEY = "backup_telegram"           # its name from when only Telegram was supported (kept for saved data)
+DEFAULT_CHANNEL = {"enabled": False, "via": "telegram", "token": "", "chat_id": "", "hours": 1, "last_at": "",
+                   "last_ok": None, "last_error": "", "last_size": 0}
 
 
-def telegram_settings(con=None) -> dict:
-    return {**DEFAULT_TELEGRAM, **(db.core.get_setting("backup_telegram", {}, con) or {})}
+def channel_settings(con=None) -> dict:
+    s = {**DEFAULT_CHANNEL, **(db.core.get_setting(SETTINGS_KEY, {}, con) or {})}
+    if s["via"] not in MESSENGERS:
+        s["via"] = "telegram"
+    return s
 
 
-def telegram_token(s: dict | None = None) -> str:
-    """Its own bot token, or the notification bot's when that one is a Telegram bot."""
-    s = s or telegram_settings()
+def channel_token(s: dict | None = None) -> str:
+    """Its own bot token, or the notification bot's when that one is on the same messenger."""
+    s = s or channel_settings()
     if (s.get("token") or "").strip():
         return s["token"].strip()
     notify = db.core.get_setting("notify", {}) or {}
-    return (notify.get("token") or "").strip() if notify.get("bot") == "telegram" else ""
+    return (notify.get("token") or "").strip() if notify.get("bot") == s["via"] else ""
 
 
-def _save_telegram(changes: dict) -> None:
+def _save_channel(changes: dict) -> None:
     with db.core.tx() as con:
-        s = telegram_settings(con)
+        s = channel_settings(con)
         s.update(changes)
-        db.core.set_setting("backup_telegram", s, con)
+        db.core.set_setting(SETTINGS_KEY, s, con)
 
 
 def _stamp() -> tuple[str, str]:
@@ -126,14 +132,14 @@ def _stamp() -> tuple[str, str]:
     return f"{jy}{jm:02d}{jd:02d}-{now:%H%M}", f"{jy}/{jm:02d}/{jd:02d} ساعت {now:%H:%M}"
 
 
-def _parts(path: Path) -> list[Path]:
-    """Split a file into Telegram-sized pieces (rejoin with `cat file.zip.0* > file.zip`)."""
-    if path.stat().st_size <= TELEGRAM_PART:
+def _parts(path: Path, size: int) -> list[Path]:
+    """Split a file into pieces the bot API accepts (rejoin with `cat file.zip.0* > file.zip`)."""
+    if path.stat().st_size <= size:
         return [path]
     parts = []
     with path.open("rb") as f:
         i = 1
-        while chunk := f.read(TELEGRAM_PART):
+        while chunk := f.read(size):
             part = path.with_name(f"{path.name}.{i:03d}")
             part.write_bytes(chunk)
             parts.append(part)
@@ -141,32 +147,33 @@ def _parts(path: Path) -> list[Path]:
     return parts
 
 
-async def send_to_telegram(*, manual: bool = False) -> dict:
-    """Zip every database and post it to the configured Telegram channel. Never raises: the outcome is saved
+async def send_to_channel(*, manual: bool = False) -> dict:
+    """Zip every database and post it to the configured Telegram or Bale channel. Never raises: the outcome is saved
     and returned so the settings page can show it."""
     import asyncio
 
     import httpx
 
-    s = telegram_settings()
-    token, chat_id = telegram_token(s), str(s.get("chat_id") or "").strip()
+    s = channel_settings()
+    via, name = s["via"], MESSENGERS[s["via"]]
+    token, chat_id = channel_token(s), str(s.get("chat_id") or "").strip()
     if not token or not chat_id:
-        return {"ok": False, "error": "توکن ربات تلگرام یا شناسه کانال تنظیم نشده"}
+        return {"ok": False, "error": f"توکن ربات {name} یا شناسه کانال تنظیم نشده"}
     stamp, label = _stamp()
     zip_path = await asyncio.to_thread(databases_zip, f"aiko-db-{stamp}.zip")
     size = zip_path.stat().st_size
     error = ""
     try:
-        parts = await asyncio.to_thread(_parts, zip_path)
+        parts = await asyncio.to_thread(_parts, zip_path, PART_BYTES[via])
         names = "، ".join(sorted(d.name for d in db.registry.values() if d.path.exists()))
-        async with integrations.abroad_client(timeout=httpx.Timeout(300, connect=20)) as client:
+        async with activity.bot_client(via, timeout=300) as client:
             for i, part in enumerate(parts, 1):
                 caption = (f"🗄 پشتیبان پنل آیکو — {label}\n{names}\nحجم: {size / 1048576:.2f} MB"
                            + (f"\nبخش {i} از {len(parts)} (برای بازکردن: cat {zip_path.name}.0* > {zip_path.name})"
                               if len(parts) > 1 else "")
                            + ("\n(دستی)" if manual else ""))
                 with part.open("rb") as fh:
-                    r = await client.post(TELEGRAM_API.format(token=token) + "sendDocument",
+                    r = await client.post(activity.BOT_BASE[via].format(token=token) + "sendDocument",
                                           data={"chat_id": chat_id, "caption": caption, "disable_notification": "true"},
                                           files={"document": (part.name, fh, "application/zip")})
                 try:
@@ -177,21 +184,21 @@ async def send_to_telegram(*, manual: bool = False) -> dict:
                     error = body.get("description") or f"HTTP {r.status_code}"
                     break
     except httpx.HTTPError as exc:
-        error = f"ارتباط با تلگرام برقرار نشد ({exc.__class__.__name__})" + ("" if integrations.proxy_url()
-                                                                           else " — پروکسی تنظیم نشده")
+        error = f"ارتباط با {name} برقرار نشد ({exc.__class__.__name__})" + (
+            " — پروکسی تنظیم نشده" if via == "telegram" and not integrations.proxy_url() else "")
     finally:
         shutil.rmtree(zip_path.parent, ignore_errors=True)
     ok = not error
-    _save_telegram({"last_at": db.now(), "last_ok": ok, "last_error": error, "last_size": size})
+    _save_channel({"last_at": db.now(), "last_ok": ok, "last_error": error, "last_size": size})
     if ok:
-        log.info("backup sent to telegram (%s bytes)", size)
+        log.info("backup sent to %s (%s bytes)", via, size)
     else:
-        log.warning("telegram backup failed: %s", error)
+        log.warning("%s backup failed: %s", via, error)
     return {"ok": ok, "error": error, "size": size}
 
 
-def telegram_due(s: dict | None = None) -> bool:
-    s = s or telegram_settings()
+def channel_due(s: dict | None = None) -> bool:
+    s = s or channel_settings()
     if not s.get("enabled"):
         return False
     last = s.get("last_at") or ""
@@ -207,10 +214,10 @@ def telegram_due(s: dict | None = None) -> bool:
     return elapsed >= wait - timedelta(minutes=2)
 
 
-async def telegram_tick() -> None:
+async def channel_tick() -> None:
     """Runs every few minutes; sends a backup when one is due (survives restarts and deploys)."""
     try:
-        if telegram_due():
-            await send_to_telegram()
+        if channel_due():
+            await send_to_channel()
     except Exception:
-        log.exception("telegram backup tick failed")
+        log.exception("channel backup tick failed")

@@ -67,7 +67,7 @@ export async function render(view, params, { setTitle }) {
         sub: du.held ? "سقف فضای رسیدها پر شده" : "ارسال ناموفق بود", href: "#/settings/drive" });
     }
     if (setup?.backup?.enabled && setup.backup.last_ok === false) {
-      items.push({ tone: "bad", ico: "database", text: "پشتیبان کانال تلگرام ارسال نشد", sub: setup.backup.last_error, href: "#/settings/backup" });
+      items.push({ tone: "bad", ico: "database", text: "پشتیبان به کانال نرسید", sub: setup.backup.last_error, href: "#/settings/backup" });
     }
     if (setup) {
       for (const it of ITEMS.filter((i) => !i.optional && !setup[i.key]?.ok)) {

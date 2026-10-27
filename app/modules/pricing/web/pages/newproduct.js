@@ -18,7 +18,7 @@ export async function render(view, params, { setTitle }) {
           <div class="field"><label>برند</label><input class="input" name="brand" placeholder="مثلاً: SHEGLAM"></div>
           <div class="field"><label>قیمت خرید شما (تومان)</label><input class="input money" name="cost" inputmode="numeric" placeholder="اختیاری"></div>
           <div class="field"><label>حداقل سود ٪</label><input class="input" name="margin" inputmode="numeric" value="۲۵"></div>
-          <button class="btn brand" type="submit" id="npSubmit">${icon("search", "sm")} بررسی بازار</button>
+          <button class="btn primary" type="submit" id="npSubmit">${icon("search", "sm")} بررسی بازار</button>
         </div>
         <p class="small muted mt12">نکته: نام انگلیسی مدل را هم بنویسید (مثل «Buttery Bliss») تا دقیق‌تر پیدا شود. جستجو در همه رقبا حدود نیم تا دو دقیقه طول می‌کشد.</p>
       </form>` : ""}
