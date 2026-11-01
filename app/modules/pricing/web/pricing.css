@@ -11,12 +11,15 @@
 .p-hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 2fr); gap: 20px; }
 .p-hero-main {
   padding: 22px 24px; display: flex; flex-direction: column; gap: 6px; position: relative; overflow: hidden; border-radius: var(--r-xl);
-  background: var(--accent); color: var(--on-accent);
+  /* the screen's one figure: the same pink-lit pane as the main KPI tile */
+  background: linear-gradient(160deg, var(--accent-soft), transparent 70%), var(--surface); color: var(--ink);
+  box-shadow: var(--glint), inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
 }
-.p-hero-main .muted { color: var(--accent-muted); }
-.p-hero-label { color: var(--accent-muted); font-weight: 500; }
-.p-hero-value { font-size: 56px; font-weight: 700; line-height: 1.1; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
-.p-hero-text b { font-weight: 700; color: var(--on-accent); }
+.p-hero-main .muted { color: var(--muted); }
+.p-hero-label { color: var(--muted); font-weight: 500; }
+.p-hero-value { font-size: 56px; font-weight: 400; line-height: 1.1; letter-spacing: -1px; font-variant-numeric: tabular-nums; color: var(--accent-ink); }
+.p-hero-text { color: var(--ink-2); }
+.p-hero-text b { font-weight: 600; color: var(--ink); }
 .p-hero-spark { margin-top: auto; height: 64px; padding-top: 6px; }
 button.kpi { border: 0; text-align: start; font: inherit; cursor: pointer; transition: transform var(--dur-press) var(--ease-out); }
 @media (hover: hover) and (pointer: fine) {
@@ -40,7 +43,7 @@ button.kpi:active { transform: scale(.98); }
 }
 .posbar > button:active { filter: brightness(.94); }
 .legend button:active { transform: scale(.96); }
-.legend b { color: var(--ink); font-weight: 700; }
+.legend b { color: var(--ink); font-weight: 600; }
 
 /* inline price strip and meters */
 .ladder { width: 150px; height: 26px; display: block; }
@@ -55,7 +58,7 @@ button.kpi:active { transform: scale(.98); }
 .kv { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .kv > div { background: var(--surface); border-radius: var(--r-lg); padding: 14px 16px; box-shadow: var(--shadow-sm); min-width: 0; }
 .kv .k { font-size: 12px; color: var(--muted); }
-.kv .v { font-size: 18px; font-weight: 700; line-height: 1.5; }
+.kv .v { font-size: 18px; font-weight: 600; line-height: 1.5; }
 
 /* dot plot: every listing per site on one price line (cheaper = right) */
 .plot { position: relative; }
@@ -73,13 +76,13 @@ button.kpi:active { transform: scale(.98); }
   .plot-dot:hover { transform: translate(50%, -50%) scale(1.35); z-index: 2; }
 }
 .plot-me { position: absolute; top: 0; bottom: 0; width: 3px; border-radius: 3px; background: var(--accent); transform: translateX(50%); z-index: 1; }
-.plot-me-label { position: absolute; top: -24px; transform: translateX(50%); font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 99px; padding: 1px 10px; white-space: nowrap; box-shadow: var(--shadow-sm); }
+.plot-me-label { position: absolute; top: -24px; transform: translateX(50%); font-size: 11px; font-weight: 600; color: var(--accent-ink); background: var(--accent-soft); border-radius: 99px; padding: 1px 10px; white-space: nowrap; box-shadow: var(--shadow-sm); }
 .plot-floor { background: var(--pos-bad); }
 .plot-floor-label { background: var(--bad-soft); color: var(--bad); }
 .plot-axis { display: grid; grid-template-columns: 96px minmax(0, 1fr); }
 .plot-axis-in { position: relative; height: 24px; font-size: 11px; color: var(--muted); }
 .plot-axis-in span { position: absolute; transform: translateX(50%); white-space: nowrap; top: 4px; }
-.p-tip { position: fixed; z-index: 95; pointer-events: none; background: var(--accent); color: var(--on-accent); border-radius: 14px; padding: 8px 12px; font-size: 12px; line-height: 1.7; max-width: 300px; box-shadow: 0 12px 28px -10px rgba(0, 0, 0, .4); }
+.p-tip { position: fixed; z-index: 95; pointer-events: none; background: var(--surface-solid); color: var(--ink); box-shadow: var(--shadow-lg); border-radius: 14px; padding: 8px 12px; font-size: 12px; line-height: 1.7; max-width: 300px; box-shadow: 0 12px 28px -10px rgba(0, 0, 0, .4); }
 
 /* competitor offers grouped by site */
 .site-group { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden; }
@@ -92,7 +95,7 @@ button.kpi:active { transform: scale(.98); }
 .offer-title { font-weight: 500; line-height: 1.6; }
 .offer-title a { text-decoration: none; }
 @media (hover: hover) and (pointer: fine) {
-  .offer-title a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+  .offer-title a:hover { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
 }
 .offer-meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .offer-price { text-align: left; white-space: nowrap; }
@@ -100,7 +103,7 @@ button.kpi:active { transform: scale(.98); }
 .score i { display: inline-block; width: 48px; height: 8px; border-radius: 99px; background: var(--surface-2); position: relative; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); }
 .score i b { position: absolute; inset-block: 0; inset-inline-start: 0; border-radius: 99px; background: var(--accent); }
 .sellers { font-size: 12px; padding: 0 18px 12px; }
-.sellers summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+.sellers summary { cursor: pointer; color: var(--accent-ink); font-weight: 500; }
 .sellers table { margin-top: 6px; background: var(--surface-2); border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); width: 100%; }
 .sellers td { padding: 6px 12px; }
 .btn.ok-btn { color: var(--ok); }
@@ -121,11 +124,11 @@ button.kpi:active { transform: scale(.98); }
 .review-card { display: grid; grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1fr); align-items: stretch; }
 .rv-side { padding: 18px 20px; display: flex; gap: 14px; }
 .rv-side.mine { background: var(--accent-soft); }
-.rv-vs { display: grid; place-items: center; color: var(--muted); font-size: 11.5px; font-weight: 700; }
+.rv-vs { display: grid; place-items: center; color: var(--muted); font-size: 11.5px; font-weight: 600; }
 .rv-label { font-size: 11.5px; color: var(--muted); }
 .rv-title { font-weight: 500; line-height: 1.65; }
 .rv-title a { text-decoration: none; }
-.rv-price { font-weight: 700; margin-top: 4px; }
+.rv-price { font-weight: 600; margin-top: 4px; }
 .rv-actions { display: flex; gap: 10px; justify-content: space-between; align-items: center; padding: 12px 20px 16px; border-top: 1px solid var(--line); flex-wrap: wrap; }
 .rv-card { padding: 0; overflow: hidden; transition: opacity 200ms ease; }
 .chart-box.sm { height: 190px; }

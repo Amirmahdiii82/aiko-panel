@@ -45,7 +45,7 @@ export async function setupCard(el, { compact = false } = {}) {
       <div class="grow" style="min-width:0"><div class="title small">${it.title}</div>
         <div class="sub ellipsis ${st.cls === "bad" ? "bad-ink" : ""}" title="${st.text}">${st.text}</div></div>
       <span class="badge ${st.cls}">${st.cls === "ok" ? icon("check") : ""}${st.label}</span>
-      <button class="btn xs ${st.cls === "ok" ? "ghost" : "primary"}" data-setup="${it.key}">${st.cls === "ok" ? "ویرایش" : "تنظیم"}</button>
+      <button class="btn xs ${st.cls === "ok" ? "ghost" : "soft"}" data-setup="${it.key}">${st.cls === "ok" ? "ویرایش" : "تنظیم"}</button>
     </div>`;
   })}</div>`;
   el.innerHTML = String(html`<section class="card">

@@ -20,7 +20,7 @@
 .model-trigger strong { display: block; font-size: 14px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-trigger small { display: block; font-size: 11.5px; color: var(--muted); direction: ltr; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prov {
-  --h: 260; width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; flex: none; font-weight: 700; font-size: 13px;
+  --h: 260; width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; flex: none; font-weight: 600; font-size: 13px;
   text-transform: uppercase; letter-spacing: .3px; color: #fff; direction: ltr;
   background: hsl(var(--h) 18% 32%);
 }
@@ -59,7 +59,7 @@
 .settings-grid .field label { font-size: 12px; }
 .adv summary { cursor: pointer; font-size: 13px; font-weight: 500; color: var(--ink-2); padding: 4px 0; }
 .adv[open] summary { margin-bottom: 10px; }
-.gen-foot { display: flex; flex-direction: column; gap: 10px; position: sticky; bottom: -22px; background: var(--surface); padding-top: 10px; margin-bottom: -6px; }
+.gen-foot { display: flex; flex-direction: column; gap: 10px; position: sticky; bottom: -22px; background: var(--surface-solid); padding-top: 10px; margin-bottom: -6px; }
 .gen-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
 
 /* results */
@@ -100,7 +100,7 @@
 .spec-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 0; }
 .spec-list div { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; border-bottom: 1px dashed var(--line-2); padding-bottom: 6px; }
 .spec-list dt { color: var(--muted); }
-.spec-list dd { margin: 0; font-weight: 700; direction: ltr; }
+.spec-list dd { margin: 0; font-weight: 600; direction: ltr; }
 
 /* library */
 .lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; }
@@ -131,7 +131,7 @@
   .gen-foot {
     position: sticky; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 5; gap: 8px;
     margin: 0 -16px -16px; padding: 12px 16px 14px; border-radius: 0 0 20px 20px;
-    background: color-mix(in srgb, var(--surface) 90%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    background: color-mix(in srgb, var(--surface-solid) 86%, transparent); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
     box-shadow: 0 -1px 0 var(--line);
   }
   .gen-foot .gen-meta:last-child { display: none; }

@@ -14,6 +14,7 @@
 // A module's settings page is never routed on its own: it is a section of Settings (#/settings/<id>).
 import { $, api, avatar, closeAllSheets, delegate, emit, emptyState, esc, feedItem, html, icon, isDark, isOwner, isPhone,
   moduleSettingsAllowed, on, popover, reducedMotion, sheet, state, toast, toggleTheme } from "./kit.js";
+import "./pill.js";
 
 const CORE_PAGES = {
   "": () => import("./pages/home.js"),
