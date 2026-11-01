@@ -3,7 +3,7 @@
 
 .pricing, .p-sheet {
   /* price-position scale (bars, dots, legend): the shared status colours; charts read the resolved values */
-  --pos-good: var(--ok); --pos-info: var(--info); --pos-warn: var(--warn); --pos-bad: var(--bad); --pos-violet: var(--ink);
+  --pos-good: var(--ok); --pos-info: var(--info); --pos-warn: var(--warn); --pos-bad: var(--bad); --pos-violet: var(--muted);
   --pos-none: var(--chart-3); --market: var(--chart-2); --market-2: var(--chart-3);
 }
 

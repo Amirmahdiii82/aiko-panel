@@ -6,15 +6,17 @@
 import { reducedMotion } from "./core.js";
 
 const GROUPS = ".modnav, .subnav, .seg, .bottom-nav";
-const OUT = "cubic-bezier(0.215, 0.61, 0.355, 1)";        // the leading edge: quick, then eases in
-const IN_OUT = "cubic-bezier(0.645, 0.045, 0.355, 1)";    // the trailing edge: waits a beat, then catches up
-const LEAD = 360, TRAIL = 550;
+// tabs are switched dozens of times a day: the whole slide stays near 300ms. The leading edge runs on --ease-out
+// (moves at once), the trailing one on --ease-in-out (holds a beat, then catches up), which is what stretches the pane.
+const LEAD = 180, TRAIL = 300;
 // pages often redraw a whole control on click: a group with the same labels drawn again right after a tap or a key is
 // the same control, so its pill starts from where the old one stood
 const recent = new Map();
 const REDRAW_MS = 1000;
 let touched = -Infinity;
-for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => { touched = performance.now(); }, true);
+let byKey = false;   // keyboard-driven changes (⌘K, arrows, Enter) never animate: they happen too often to wait for
+addEventListener("pointerdown", () => { touched = performance.now(); byKey = false; }, true);
+addEventListener("keydown", () => { touched = performance.now(); byKey = true; }, true);
 const labels = (box) => [...box.querySelectorAll(":scope > a, :scope > button")].map((e) => e.textContent.trim()).join("|");
 
 function attach(box) {
@@ -35,12 +37,12 @@ function attach(box) {
     const edges = { l: r.left - p.left, r: p.right - r.right, t: r.top - p.top, b: p.bottom - r.bottom };
     // nothing moved (a resize observer's first call, a redraw of the same selection): leave a running slide alone
     if (prev && pill.style.opacity === "1" && ["l", "r", "t", "b"].every((k) => Math.abs(edges[k] - prev[k]) <= 1)) return;
-    const move = animate && prev && pill.style.opacity === "1" && !reducedMotion();
+    const move = animate && prev && pill.style.opacity === "1" && !byKey && !reducedMotion();
     if (move && Math.abs(edges.l - prev.l) > 1) {
       const right = edges.l > prev.l;
       pill.style.transition = right
-        ? `--pl ${TRAIL}ms ${IN_OUT}, --pr ${LEAD}ms ${OUT}`
-        : `--pl ${LEAD}ms ${OUT}, --pr ${TRAIL}ms ${IN_OUT}`;
+        ? `--pl ${TRAIL}ms var(--ease-in-out), --pr ${LEAD}ms var(--ease-out)`
+        : `--pl ${LEAD}ms var(--ease-out), --pr ${TRAIL}ms var(--ease-in-out)`;
     } else {
       pill.style.transition = "none";
     }
