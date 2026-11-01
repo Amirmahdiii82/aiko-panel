@@ -10,9 +10,7 @@ import { CHANNEL_ICON, erp, isAdmin } from "../erp.js";
 const MAIN_CHANNELS = ["website", "instagram", "in_person"];     // always offered; the rest only when they sold
 
 export async function render(view, params, { setTitle }) {
-  const hour = Number(new Date().toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Tehran" }));
-  const greet = hour < 12 ? "صبح بخیر" : hour < 17 ? "روز بخیر" : "عصر بخیر";
-  setTitle(isAdmin() ? "داشبورد فروشگاه" : `${greet}، ${erp.me.user.name}`, jdate(erp.me.today, { weekday: true }));
+  setTitle(isAdmin() ? "داشبورد فروشگاه" : "فروشگاه", jdate(erp.me.today, { weekday: true }));
   const pick = storage("erp-dash") || {};
   let days = pick.days || 30, channel = pick.channel || "";
   const load = (quiet = false) => api(`/api/erp/dashboard?days=${days}&channel=${channel}`, { quiet });
@@ -83,7 +81,7 @@ function adminHome(d) {
       </div>
     </div>
 
-    <div class="grid g4">
+    <div class="kpi-strip">
       ${moneyKpi({ hero: true, label: `فروش ${d.period_label}`, amount: m.revenue, href: "#/erp/sales",
         foot: html`${delta(m.revenue, pm.revenue)} <span>${vs}</span>`, link: html`${fa(m.orders)} سفارش · امروز ${compact(d.today.revenue)}` })}
       ${moneyKpi({ label: one ? "سود ناخالص" : "سود خالص", amount: one ? m.gross : m.net, ico: "piggy-bank", tone: (one ? m.gross : m.net) < 0 ? "bad" : "",

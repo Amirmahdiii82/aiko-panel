@@ -61,7 +61,7 @@ export async function render(view, params, { setTitle }) {
     const siteBadge = (st) => ({
       running: html`<span class="badge info">در حال جستجو…</span>`,
       ok: st.found ? html`<span class="badge ok">${n(st.found)} آگهی</span>` : html`<span class="badge">پیدا نشد</span>`,
-      blocked: html`<span class="badge bad">⛔ مسدود</span>`, failed: html`<span class="badge bad">✕ خطا</span>`,
+      blocked: html`<span class="badge bad">مسدود</span>`, failed: html`<span class="badge bad">✕ خطا</span>`,
     }[st.status] || "");
     let advice = "";
     if (!running && !sm.n_sites)

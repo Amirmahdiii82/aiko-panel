@@ -11,7 +11,7 @@ const QUALITY = { auto: "خودکار", low: "کم", medium: "متوسط", high:
 const BACKGROUND = { auto: "خودکار", transparent: "شفاف", opaque: "مات" };
 const FORMAT = { png: "PNG", jpeg: "JPEG", webp: "WebP", svg: "SVG" };
 const IDEAS = [
-  { label: "رژ لب روی سنگ تراورتن", ico: "sparkles", prompt: "A glossy rose lip tint standing on blush travertine, dewy highlights, coral-to-orchid sunset glow, slow elegant camera orbit, premium beauty campaign, photorealistic." },
+  { label: "رژ لب روی سنگ تراورتن", ico: "film", prompt: "A glossy rose lip tint standing on blush travertine, dewy highlights, coral-to-orchid sunset glow, slow elegant camera orbit, premium beauty campaign, photorealistic." },
   { label: "ماکرو ریمل", ico: "eye", prompt: "Macro view of rich mascara brushing through lashes, clean cream background, soft indigo shadows, graceful slow motion, precise premium cosmetic commercial." },
   { label: "رژگونه میان گلبرگ‌ها", ico: "heart", prompt: "A luminous blush compact surrounded by translucent pink petals, golden-hour warmth fading into blue-hour cool, soft bokeh, refined beauty editorial." },
 ];
@@ -20,7 +20,7 @@ const prefs = () => storage("media-composer") || {};
 const savePrefs = (p) => storage("media-composer", p);
 
 export async function render(view, params, { setTitle, query }) {
-  setTitle("استودیو محتوا", "ساخت ویدیو و تصویر تبلیغاتی با هوش مصنوعی");
+  setTitle("استودیو محتوا", "ویدیو و تصویر تبلیغاتی برای محصولات آیکو");
   await loadConfig();
   const saved = prefs();
   const st = {
@@ -47,7 +47,7 @@ export async function render(view, params, { setTitle, query }) {
   function drawComposer() {
     if (!M.config.configured) {
       composer.innerHTML = String(html`<div class="stack s12">
-        <h2>${icon("wand-sparkles")} استودیو هنوز وصل نیست</h2>
+        <h2>${icon("clapperboard")} استودیو هنوز وصل نیست</h2>
         <p class="small muted" style="line-height:2">برای ساخت ویدیو و تصویر، کلید API سرویس OpenRouter لازم است. کلید فقط روی سرور نگه داشته می‌شود و هیچ‌وقت به مرورگر نمی‌رسد.</p>
         ${isOwner() ? html`<a class="btn primary" href="#/settings/connections">${icon("key-round")} تنظیم کلید OpenRouter</a>` : html`<p class="small">از مدیر بخواهید کلید را در تنظیمات استودیو وارد کند.</p>`}
       </div>`);
@@ -109,7 +109,7 @@ export async function render(view, params, { setTitle, query }) {
         </div></details>
       <div class="gen-foot">
         <div class="gen-meta"><span id="outCount"></span><span id="priceHint"></span></div>
-        <button class="btn primary lg block" id="generate">${icon("wand-sparkles")} <span id="genLabel">بساز</span></button>
+        <button class="btn primary lg block" id="generate"><span id="genLabel">بساز</span></button>
         <div class="gen-meta"><span>هزینه این ماه: ${usd(M.config.month_spend) || "$0"}${M.config.monthly_limit_usd ? ` از ${usd(M.config.monthly_limit_usd)}` : ""}</span>
           <a class="small" href="#/media/library">کتابخانه ←</a></div>
       </div>`);
@@ -335,7 +335,7 @@ export async function render(view, params, { setTitle, query }) {
         <div class="confirm-models">${sel.map((m) => html`<div class="list-item">${provAvatar(m.id, "sm")}<div class="grow"><b>${m.name || m.id}</b><small title="${describePricing(m, 20)}">${describePricing(m, 4)}</small></div></div>`)}</div>
         <dl class="spec-list">${Object.entries(rows).map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>
       </div>`,
-      foot: html`<button class="btn primary" id="go">${icon("wand-sparkles")} بله، بساز</button><button class="btn ghost" data-close>انصراف</button>`,
+      foot: html`<button class="btn primary" id="go">بله، بساز</button><button class="btn ghost" data-close>انصراف</button>`,
     });
     s.root.querySelector("#go").onclick = async (e) => {
       e.target.disabled = true;
@@ -426,9 +426,9 @@ export async function render(view, params, { setTitle, query }) {
   function drawStage() {
     if (!st.batch.length) {
       stage.innerHTML = String(html`<section class="card"><div class="stage-empty">
-        <span class="gen-orb">${icon("sparkles")}</span>
-        <h2>زیبایی را جادویی نشان بده</h2>
-        <p class="small muted">یک ایده انتخاب کنید یا متن خودتان را بنویسید. همه ساخته‌ها در کتابخانه مشترک تیم ذخیره می‌شوند.</p>
+        <span class="stage-ico">${icon("clapperboard")}</span>
+        <h2>هنوز چیزی نساخته‌اید</h2>
+        <p class="small muted">یکی از این سه را شروع کنید یا متن خودتان را بنویسید؛ هر ساخته در کتابخانه مشترک تیم می‌ماند.</p>
         ${canCreate() && M.config.configured ? html`<div class="starters">${IDEAS.map((i) => html`<button class="starter" data-starter="${i.prompt}">
           <span class="s-ico">${icon(i.ico)}</span><b>${i.label}</b><span class="ltr" style="text-align:left;font-size:11.5px">${i.prompt.slice(0, 90)}…</span></button>`)}</div>` : ""}
       </div></section>`);

@@ -67,10 +67,10 @@ export function trendChart(canvas, labels, current, previous, { label = "این 
     const fill = ctx.createLinearGradient(0, 0, 0, canvas.clientHeight || 260);
     fill.addColorStop(0, cssVar("--chart-grid"));
     fill.addColorStop(1, "transparent");
-    const sets = [{ label, data: current, borderColor: ink, backgroundColor: fill, fill: true, tension: 0.35, borderWidth: 2.2,
+    const sets = [{ label, data: current, borderColor: ink, backgroundColor: fill, fill: true, tension: 0.3, cubicInterpolationMode: "monotone", borderWidth: 2.2,
       pointRadius: 0, pointHoverRadius: 5, pointBackgroundColor: ink, pointHoverBorderWidth: 3, pointHoverBorderColor: cssVar("--surface") }];
     if (previous) {
-      sets.push({ label: prevLabel, data: previous, borderColor: cssVar("--chart-2"), borderDash: [5, 5], borderWidth: 1.6, tension: 0.35,
+      sets.push({ label: prevLabel, data: previous, borderColor: cssVar("--chart-2"), borderDash: [5, 5], borderWidth: 1.6, tension: 0.3, cubicInterpolationMode: "monotone",
         pointRadius: 0, pointHoverRadius: 4, pointBackgroundColor: cssVar("--chart-2"), fill: false });
     }
     return { type: "line", data: { labels, datasets: sets }, options: base() };
@@ -90,7 +90,7 @@ export function comboChart(canvas, labels, revenue, net, expenses) {
         datasets: [
           { label: "فروش", data: revenue, backgroundColor: cssVar("--chart-1"), borderRadius: 8, borderSkipped: false, maxBarThickness: 30, order: 2 },
           { label: "هزینه‌های جاری", data: expenses, backgroundColor: cssVar("--chart-3"), borderRadius: 8, borderSkipped: false, maxBarThickness: 30, order: 3 },
-          { label: "سود خالص", data: net, type: "line", borderColor: cssVar("--chart-4"), backgroundColor: cssVar("--chart-4"), tension: 0.35, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2.5, order: 1 },
+          { label: "سود خالص", data: net, type: "line", borderColor: cssVar("--chart-4"), backgroundColor: cssVar("--chart-4"), tension: 0.3, cubicInterpolationMode: "monotone", pointRadius: 3, pointHoverRadius: 5, borderWidth: 2.5, order: 1 },
         ],
       },
       options: o,

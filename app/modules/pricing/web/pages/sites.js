@@ -4,7 +4,7 @@ import { P, canEdit, faDate, n, refreshMeta, startCrawl } from "../pricing.js";
 
 const STATUS = {
   ok: html`<span class="badge ok">✓ موفق</span>`, partial: html`<span class="badge warn">ناقص</span>`,
-  blocked: html`<span class="badge bad" title="سایت درخواست‌ها را مسدود کرد (کپچا/محدودیت)">⛔ مسدود</span>`,
+  blocked: html`<span class="badge bad" title="سایت درخواست‌ها را مسدود کرد (کپچا/محدودیت)">مسدود</span>`,
   failed: html`<span class="badge bad">✕ خطا</span>`, running: html`<span class="badge info">در حال اجرا</span>`,
   skipped: html`<span class="badge warn" title="بعد از مسدود شدن، یک دور استراحت می‌کند">⏸ استراحت</span>`,
 };

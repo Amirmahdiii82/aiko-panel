@@ -137,7 +137,7 @@ const FORMS = {
       try {
         if (b.dataset.act === "backfill") { const r = await api("/api/drive/backfill", { method: "POST" }); toast(`${fa(r.queued)} فایل در صف ارسال به درایو`); }
         if (b.dataset.act === "retry") { await api("/api/drive/retry", { method: "POST" }); toast("دوباره فرستاده می‌شوند"); }
-        if (b.dataset.act === "test") { await api("/api/drive/test", { method: "POST" }); toast("اتصال گوگل درایو درست است ✓"); }
+        if (b.dataset.act === "test") { await api("/api/drive/test", { method: "POST" }); toast("اتصال گوگل درایو درست است"); }
         if (b.dataset.act === "disconnect") { await api("/api/drive/disconnect", { method: "POST" }); toast("قطع شد"); }
       } finally { onSaved?.(); redraw(); }
     }; });
@@ -161,7 +161,7 @@ const FORMS = {
       await api("/api/integrations", { method: "PUT", body: { woo: { url: f.url.value, key: f.key.value, secret: f.secret.value, query_auth: f.query_auth.checked } } });
       try {
         const r = await api("/api/integrations/woo/test", { method: "POST" });
-        toast(`سایت وصل شد ✓${r.products != null ? ` — ${fa(r.products)} محصول` : ""}`);
+        toast(`سایت وصل شد${r.products != null ? ` — ${fa(r.products)} محصول` : ""}`);
       } catch (err) { /* the error toast is already shown */ }
       onSaved?.();
       FORMS.woo(el, { onSaved });
@@ -302,7 +302,7 @@ const FORMS = {
       try {
         await save();
         await api("/api/backup/channel/send", { method: "POST" });
-        toast("پشتیبان در کانال فرستاده شد ✓");
+        toast("پشتیبان در کانال فرستاده شد");
       } catch (err) { /* error toast shown; the status line below explains */ }
       finally { btn.disabled = false; onSaved?.(); FORMS.backup(el, { onSaved }); }
     };

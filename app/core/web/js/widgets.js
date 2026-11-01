@@ -246,10 +246,12 @@ export function selectOptions(options, selected, placeholder = "") {
   return html`${placeholder ? html`<option value="">${placeholder}</option>` : ""}${options.map((o) =>
     html`<option value="${o.value}" ${String(o.value) === String(selected ?? "") ? raw("selected") : ""}>${o.label}</option>`)}`;
 }
+// activity titles are shared with the Telegram bot, where an emoji leads each message; in the panel the icon does that job
+const plain = (s) => String(s || "").replace(/[\p{Extended_Pictographic}\uFE0F]/gu, "").replace(/^\s+/, "");
 export function feedItem(a, { showModule = false } = {}) {
   return html`<div class="feed-item ${a.link ? "clickable" : ""}" data-link="${a.link || ""}">
     <span class="feed-icon ${a.level}">${icon(KIND_ICON[a.kind] || LEVEL_ICON[a.level] || "info")}</span>
-    <div class="feed-body"><div class="feed-title">${a.title}${showModule && a.module ? html` <span class="role-pill">${moduleName(a.module)}</span>` : ""}</div>${a.body ? html`<div class="feed-text">${a.body}</div>` : ""}</div>
+    <div class="feed-body"><div class="feed-title">${plain(a.title)}${showModule && a.module ? html` <span class="role-pill">${moduleName(a.module)}</span>` : ""}</div>${a.body ? html`<div class="feed-text">${a.body}</div>` : ""}</div>
     <span class="feed-time" title="${a.created_at}">${ago(a.created_at)}</span>
   </div>`;
 }

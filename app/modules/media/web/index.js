@@ -7,16 +7,16 @@ export default {
   css: ["/m/media/media.css"],
   // settings (spending cap) live in Settings → استودیو محتوا
   nav: () => [
-    { href: "", label: "ساخت", ico: "wand-sparkles" },
+    { href: "", label: "ساخت", ico: "clapperboard" },
     { href: "library", label: "کتابخانه", ico: "library" },
   ],
-  action: (role) => (role === "creator" ? { href: "", label: "ساخت جدید", ico: "sparkles" } : null),
+  action: (role) => (role === "creator" ? { href: "", label: "ساخت جدید", ico: "plus" } : null),
   pages: {
     "": () => import("./pages/studio.js"),
     library: () => import("./pages/library.js"),
   },
   settings: () => import("./pages/settings.js"),
-  quick: (role) => (role === "creator" ? [{ href: "#/media", label: "ساخت محتوا", ico: "wand-sparkles" }] : []),
+  quick: (role) => (role === "creator" ? [{ href: "#/media", label: "ساخت محتوا", ico: "clapperboard" }] : []),
 
   /** The unified home page: what needs attention (the studio has no business numbers to show there). */
   glance(d) {

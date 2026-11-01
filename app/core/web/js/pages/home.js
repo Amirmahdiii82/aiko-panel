@@ -1,4 +1,5 @@
-// Home: the whole business on one calm screen. Quick actions, the four numbers that matter (the first one dark),
+// Home: the whole business on one calm screen. Today's date as the title, quick actions, the four numbers that matter
+// in one strip (the first is the answer, larger),
 // one list of what needs attention from every module (and, for owners, unfinished setup — each links to its section
 // in Settings), and the latest activity beside it.
 // Modules feed it through `glance(data, role)` → { headline?, stats?: [...], alerts?: [...] } (see ARCHITECTURE.md).
@@ -7,10 +8,9 @@ import { ITEMS } from "../setup.js";
 
 export async function render(view, params, { setTitle }) {
   const me = state.me;
-  const hour = new Date().getHours();
-  const greet = hour < 5 ? "شب بخیر" : hour < 12 ? "صبح بخیر" : hour < 17 ? "روز بخیر" : "عصر بخیر";
+  // the title names the day, not the person: what the screen is about, read at a glance
   const date = jdate(me.today, { weekday: true, year: false });
-  setTitle(`${greet}، ${me.user.name}`, date);
+  setTitle(date, "");
   const registry = state.registry || {};
   const mods = me.modules.map((m) => registry[m.id]).filter((m) => m && m.def);
   const quick = mods.flatMap((m) => (m.def.quick ? m.def.quick(m.info.role) : []));
@@ -18,7 +18,7 @@ export async function render(view, params, { setTitle }) {
   view.innerHTML = String(html`<div class="home">
     ${quick.length ? html`<nav class="quick" aria-label="کارهای سریع">${quick.slice(0, 5).map((q) => html`<a href="${q.href}">
       <span class="q-ico">${icon(q.ico)}</span><span>${q.label}</span></a>`)}</nav>` : ""}
-    <section class="grid g4" id="stats" aria-label="آمار">${[0, 1, 2, 3].map(() => html`<div class="skeleton" style="height:128px"></div>`)}</section>
+    <section class="kpi-strip" id="stats" aria-label="آمار">${[0, 1, 2, 3].map(() => html`<div class="skeleton" style="height:112px"></div>`)}</section>
     <div class="home-cols">
       <section class="card">
         <div class="card-head"><h2>${icon("list-checks")} نیاز به توجه</h2><span class="spacer"></span><span id="todo-count"></span></div>
@@ -44,7 +44,7 @@ export async function render(view, params, { setTitle }) {
       try { return { mod: m, ...m.def.glance(d, m.info.role) }; } catch (e) { console.error(e); return { mod: m, error: "نمایش ناموفق بود" }; }
     });
     const headline = glances.find((g) => g.headline)?.headline;
-    setTitle(`${greet}، ${me.user.name}`, headline ? `${date} — ${headline}` : date);
+    setTitle(date, headline || "");
     const stats = glances.flatMap((g) => g.stats || []).slice(0, 4);
     const el = $("#stats", view);
     if (!el) return;
