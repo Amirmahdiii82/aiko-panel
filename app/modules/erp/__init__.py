@@ -4,7 +4,7 @@ from pathlib import Path
 from ...core import db as core_db
 from ...core import events, jobs
 from ...core.modules import Module
-from . import botflows, botreports, db, ledger, notify, receipts, reports
+from . import books, botflows, botreports, db, ledger, notify, receipts, reports
 from .site import client, history, stock
 from .router import ledger_profile, router
 
@@ -61,6 +61,7 @@ async def startup() -> None:
     db.seed_settings()
     client.ensure_webhook_secret()
     bootstrap()
+    books.apply_shipped()                              # the old sheet's books, once, after the hand count
     events.on("user.saved", on_user_saved)
     events.on("integrations.saved", lambda keys: stock.wake())
     events.on("drive.backfill", receipts.backfill)

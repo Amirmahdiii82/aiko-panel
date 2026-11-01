@@ -159,8 +159,10 @@ def report(con, start: str, end: str, label: str = "") -> dict:
         """SELECT category, SUM(amount) AS amount, COUNT(*) AS n FROM expenses
            WHERE is_inventory = 0 AND date BETWEEN ? AND ? GROUP BY category ORDER BY amount DESC""", (start, end)))
 
+    # a purchase without an account (the sheet's) was paid by a "stock" expense, already in inventory_spend
     purchases = con.execute("""SELECT IFNULL(SUM(total), 0) FROM purchases
-                               WHERE status = 'done' AND date BETWEEN ? AND ?""", (start, end)).fetchone()[0]
+                               WHERE status = 'done' AND account_id IS NOT NULL AND date BETWEEN ? AND ?""",
+                            (start, end)).fetchone()[0]
     inventory_spend = con.execute("""SELECT IFNULL(SUM(amount), 0) FROM expenses
                                      WHERE is_inventory = 1 AND date BETWEEN ? AND ?""", (start, end)).fetchone()[0]
 
