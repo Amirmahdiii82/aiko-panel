@@ -202,7 +202,7 @@ export function moneyKpi(opts) {
   return kpi({ ...opts, value: compact(opts.amount), unit: "تومان", title: `${num(opts.amount)} تومان` });
 }
 export function delta(cur, prev) {
-  if (!prev) return cur ? html`<span class="delta up">جدید</span>` : "";
+  if (!prev) return "";
   const d = (cur - prev) / Math.abs(prev);
   const cls = Math.abs(d) < 0.005 ? "flat" : d > 0 ? "up" : "down";
   const sign = d > 0 ? "+" : d < 0 ? "−" : "";
@@ -248,6 +248,8 @@ export function selectOptions(options, selected, placeholder = "") {
 }
 // activity titles are shared with the Telegram bot, where an emoji leads each message; in the panel the icon does that job
 const plain = (s) => String(s || "").replace(/[\p{Extended_Pictographic}\uFE0F]/gu, "").replace(/^\s+/, "");
+/** Whether a feed list mixes modules (only then does each item carry its module's name). */
+export const mixedModules = (items) => new Set(items.map((a) => a.module).filter(Boolean)).size > 1;
 export function feedItem(a, { showModule = false } = {}) {
   return html`<div class="feed-item ${a.link ? "clickable" : ""}" data-link="${a.link || ""}">
     <span class="feed-icon ${a.level}">${icon(KIND_ICON[a.kind] || LEVEL_ICON[a.level] || "info")}</span>

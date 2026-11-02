@@ -45,7 +45,7 @@ export async function render(view, params, { setTitle, query }) {
         <div class="card tight pos-search">
           <div class="row nowrap">
             <div class="input-wrap" style="flex:1;min-width:0">${icon("search")}<input enterkeyhint="go" class="input" id="q" autocomplete="off"
-              placeholder="نام، برند یا کد محصول… (Enter = افزودن)" aria-label="جستجوی محصول"></div>
+              placeholder="نام، برند یا کد محصول…" title="Enter: افزودن اولین نتیجه" aria-label="جستجوی محصول"></div>
             <select class="select brand-pick" id="brand" aria-label="برند"></select>
           </div>
           <div class="chips scroll mt12" id="shelves"></div>

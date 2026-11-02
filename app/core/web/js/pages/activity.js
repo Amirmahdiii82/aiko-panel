@@ -1,5 +1,5 @@
 // Every event from every module (filtered to what this user may see), newest first, live.
-import { $, api, delegate, emptyState, feedItem, html, icon, on, state } from "../kit.js";
+import { $, api, delegate, emptyState, feedItem, html, mixedModules, icon, on, state } from "../kit.js";
 
 export async function render(view, params, { setTitle, query }) {
   setTitle("رویدادها", "هر چه در فروشگاه، قیمت‌ها و استودیو اتفاق افتاده");
@@ -12,7 +12,7 @@ export async function render(view, params, { setTitle, query }) {
     view.innerHTML = String(html`<div class="stack">
       <div class="chips scroll">${mods.map((m) => html`<button class="chip ${m.id === module ? "on" : ""}" data-m="${m.id}">${m.name}</button>`)}</div>
       <section class="card">
-        ${items.length ? html`<div class="feed" id="feed">${items.map((a) => feedItem(a, { showModule: !module }))}</div>
+        ${items.length ? html`<div class="feed" id="feed">${items.map((a) => feedItem(a, { showModule: !module && mixedModules(items) }))}</div>
           <div class="row mt16" style="justify-content:center"><button class="btn sm ghost" id="more">${icon("chevron-down", "sm")} قدیمی‌تر</button></div>`
           : emptyState("history", "رویدادی نیست")}
       </section></div>`);

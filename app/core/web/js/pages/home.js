@@ -3,7 +3,7 @@
 // one list of what needs attention from every module (and, for owners, unfinished setup — each links to its section
 // in Settings), and the latest activity beside it.
 // Modules feed it through `glance(data, role)` → { headline?, stats?: [...], alerts?: [...] } (see ARCHITECTURE.md).
-import { $, api, delegate, emptyState, fa, feedItem, html, icon, isOwner, jdate, kpi, on, state, todoBadge, todoList } from "../kit.js";
+import { $, api, delegate, emptyState, fa, feedItem, html, mixedModules, icon, isOwner, jdate, kpi, on, state, todoBadge, todoList } from "../kit.js";
 import { ITEMS } from "../setup.js";
 
 export async function render(view, params, { setTitle }) {
@@ -80,7 +80,7 @@ export async function render(view, params, { setTitle }) {
   const loadFeed = async () => {
     const items = await api("/api/activity?limit=7", { quiet: true }).catch(() => []);
     const feed = $("#feed", view);
-    if (feed) feed.innerHTML = items.length ? String(html`${items.map((a) => feedItem(a, { showModule: true }))}`)
+    if (feed) feed.innerHTML = items.length ? String(html`${items.map((a) => feedItem(a, { showModule: mixedModules(items) }))}`)
       : String(emptyState("history", "هنوز رویدادی نیست"));
   };
   await Promise.all([loadGlances(), loadSetup(), loadFeed()]);

@@ -48,7 +48,7 @@ export const WOO_STATE = {
 export function wooBadge(p) {
   if (!p.woo_id) return html`<span class="badge" title="برای این محصول اتصال به ووکامرس ثبت نشده">${icon("unlink")}اتصال سایت ندارد</span>`;
   const st = WOO_STATE[p.woo_state];
-  if (!st) return html`<span class="badge primary" title="اتصال ثبت شده؛ هنوز نتیجه بررسی موجودی ثبت نشده">${icon("link")}وصل، بررسی‌نشده</span>`;
+  if (!st) return html`<span class="badge info" title="اتصال ثبت شده؛ هنوز نتیجه بررسی موجودی ثبت نشده">${icon("link")}وصل، بررسی‌نشده</span>`;
   return html`<span class="badge ${st.cls}" title="${p.woo_state === "error" ? p.woo_error || "" : st.tip}">${icon(st.ico)}${st.label}</span>`;
 }
 

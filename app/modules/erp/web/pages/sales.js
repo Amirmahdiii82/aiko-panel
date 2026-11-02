@@ -47,8 +47,8 @@ export async function render(view, params, { setTitle, query }) {
     const unpaid = done.filter((r) => !r.paid).reduce((s, r) => s + r.total, 0);
     const items = done.reduce((s, r) => s + (r.items_count || 0), 0);
     $("#summary", view).innerHTML = String(html`
-      <div class="kpi hero"><div class="k-label">تعداد فروش</div><div class="k-value">${fa(done.length)}</div><div class="k-foot">${fa(items)} عدد کالا</div></div>
-      <div class="kpi" title="${toman(revenue)}"><div class="k-label">مبلغ فروش</div><div class="k-value">${compact(revenue)}<span class="k-unit">تومان</span></div>
+      <div class="kpi"><div class="k-label">تعداد فروش</div><div class="k-value">${fa(done.length)}</div><div class="k-foot">${fa(items)} عدد کالا</div></div>
+      <div class="kpi hero" title="${toman(revenue)}"><div class="k-label">مبلغ فروش</div><div class="k-value">${compact(revenue)}<span class="k-unit">تومان</span></div>
         <div class="k-foot">میانگین هر سفارش ${compact(done.length ? revenue / done.length : 0)}</div></div>
       ${admin ? html`<div class="kpi ${profit < 0 ? "bad" : ""}" title="${toman(profit)}"><div class="k-label">سود ناخالص</div><div class="k-value">${compact(profit)}<span class="k-unit">تومان</span></div>
         <div class="k-foot">قبل از هزینه‌های جاری</div></div>` : ""}
@@ -63,12 +63,12 @@ export async function render(view, params, { setTitle, query }) {
       <thead><tr><th>تاریخ</th><th>مشتری / کد</th><th>اقلام</th><th>کانال</th>${admin ? html`<th>فروشنده</th>` : ""}<th class="n">مبلغ</th><th>پرداخت</th></tr></thead>
       <tbody>${rows.map((r) => html`<tr class="clickable ${r.status === "void" ? "void" : ""}" data-open="${r.id}">
         <td class="nowrap">${jdate(r.date, { year: false })}</td>
-        <td class="m-full"><b>${r.customer_name || "—"}</b> <span class="muted small">${r.code}</span></td>
+        <td class="m-full">${r.customer_name ? html`<b>${r.customer_name}</b> ` : ""}<span class="muted small ltr">${r.code}</span></td>
         <td class="m-full small muted" style="max-width:320px"><div class="ellipsis">${fa(r.items_text || "")}</div></td>
-        <td><span class="badge primary">${icon(CHANNEL_ICON[r.channel] || "tag")}${erp.me.channels[r.channel] || r.channel}</span></td>
+        <td><span class="badge">${icon(CHANNEL_ICON[r.channel] || "tag")}${erp.me.channels[r.channel] || r.channel}</span></td>
         ${admin ? html`<td class="small m-hide">${r.seller_name || (r.channel === "website" ? "سایت" : "—")}</td>` : ""}
         <td class="n bold">${num(r.total)}</td>
-        <td>${r.status === "void" ? html`<span class="badge">باطل</span>` : r.paid ? html`<span class="badge ok">${icon("check")}${r.account_name || "پرداخت شد"}</span>` : html`<span class="badge warn">${icon("clock")}نسیه</span>`}</td>
+        <td>${r.status === "void" ? html`<span class="badge">باطل</span>` : r.paid ? html`<span class="small">${r.account_name || "پرداخت شد"}</span>` : html`<span class="badge warn">${icon("clock")}نسیه</span>`}</td>
       </tr>`)}</tbody></table></div>`);
   }
   drawFilters();
@@ -106,7 +106,7 @@ export function openSale(id, changed) {
     const siteUrl = erp.me.site.url;
     s.root.querySelector(".sheet-body").innerHTML = String(html`<div class="stack">
       <div class="row">
-        <span class="badge primary">${icon(CHANNEL_ICON[sale.channel] || "tag")}${erp.me.channels[sale.channel]}</span>
+        <span class="badge">${icon(CHANNEL_ICON[sale.channel] || "tag")}${erp.me.channels[sale.channel]}</span>
         ${sale.status === "void" ? html`<span class="badge bad">باطل شده</span>` : sale.paid ? html`<span class="badge ok">پرداخت شده</span>` : html`<span class="badge warn">پرداخت نشده</span>`}
         ${sale.woo_order_id ? html`<a class="badge info" href="${siteUrl}/wp-admin/post.php?post=${sale.woo_order_id}&action=edit" target="_blank" rel="noopener">${icon("external-link")}سفارش سایت (${sale.woo_status})</a>` : ""}
         ${sale.source === "sheet" ? html`<span class="badge">از اکسل</span>` : ""}

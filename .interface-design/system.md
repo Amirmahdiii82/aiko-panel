@@ -75,8 +75,8 @@ controls (badge/chip internals). Gap between groups ≥ 2× the gap inside a gro
 - Logical properties only (`margin-inline-start`, `inset-inline-end`, `text-align: start`). Physical left/right
   only for physical geometry (safe-area insets), with a `[dir]` override for any `translateX`.
 - Horizontally scrolling rows (chips, page tabs) fade at the overflow edge and scroll the active item into view.
-- One primary (pink) action per view. When the page has its own primary action, the module's header action
-  becomes `.btn.soft`.
+- One primary (pink) action per view. When the page body has its own `.btn.primary`, the module's header action
+  steps back to the soft look automatically (`.main:has(#view .btn.primary) #top-action .btn.primary` in ui.css).
 
 ## Components
 
@@ -91,6 +91,9 @@ controls (badge/chip internals). Gap between groups ≥ 2× the gap inside a gro
   coloured button, and never hover-only (touch has no hover).
 - **Thumbnails in lists** — decided per store, not per row: if the store uses product images, every row keeps the
   slot (neutral placeholder when missing) so rows stay aligned; otherwise no slot.
+- **Avatar** `.avatar` — neutral (`--surface-3` / `--ink`), never the accent.
+- **Activity feed** — an item shows its module's name only when the list mixes modules (`mixedModules()`).
+- **Payment / account** — the account a sale was paid into is plain text; only «نسیه» / unpaid carries a status badge.
 - **Empty state** `.empty` — icon, title (what this place is), one line (how it fills), one action when there is
   one. Filtered-empty names the filter and offers to clear it.
 

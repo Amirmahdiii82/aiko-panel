@@ -12,7 +12,7 @@
 //   { id, nav(role), pages: { "": () => import(...) }, settings?: () => import(...), allowed(role, page), enter(),
 //     action(role), quick(role), glance(data, role), css: [] }
 // A module's settings page is never routed on its own: it is a section of Settings (#/settings/<id>).
-import { $, api, avatar, closeAllSheets, delegate, emit, emptyState, esc, feedItem, html, icon, isDark, isOwner, isPhone,
+import { $, api, avatar, closeAllSheets, delegate, emit, emptyState, esc, feedItem, html, mixedModules, icon, isDark, isOwner, isPhone,
   moduleSettingsAllowed, on, popover, reducedMotion, sheet, state, toast, toggleTheme } from "./kit.js";
 import "./pill.js";
 
@@ -486,7 +486,7 @@ async function openNotifications() {
   const s = sheet({
     title: "اعلان‌ها",
     side: true,
-    body: items.length ? html`<div class="feed">${items.map((a) => feedItem(a, { showModule: true }))}</div>`
+    body: items.length ? html`<div class="feed">${items.map((a) => feedItem(a, { showModule: mixedModules(items) }))}</div>`
       : emptyState("bell", "اعلانی نیست", "فروش‌ها، تمام شدن موجودی، نتیجه بروزرسانی قیمت‌ها و آماده شدن ویدیوها اینجا می‌آید."),
     foot: html`<a class="btn ghost sm" href="#/activity" data-close>همه رویدادها</a>`,
   });

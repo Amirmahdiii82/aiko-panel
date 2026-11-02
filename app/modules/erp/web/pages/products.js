@@ -7,8 +7,8 @@ const FILTERS = [
   { key: "all", label: "همه" },
   { key: "low", label: "رو به اتمام", test: (p) => p.stock > 0 && p.stock <= p.low_stock },
   { key: "out", label: "ناموجود در انبار", test: (p) => p.stock <= 0 },
-  { key: "unlinked", label: "اتصال سایت ندارد", test: (p) => !p.woo_id, admin: true },
-  { key: "error", label: "خطای سایت", test: (p) => p.woo_state === "error", admin: true },
+  { key: "unlinked", label: "اتصال سایت ندارد", test: (p) => !p.woo_id, admin: true, site: true },
+  { key: "error", label: "خطای سایت", test: (p) => p.woo_state === "error", admin: true, site: true },
   { key: "nocost", label: "بدون قیمت خرید", test: (p) => !p.avg_cost && (p.stock > 0 || p.sold_total > 0), admin: true },
   { key: "archived", label: "بایگانی", admin: true },
 ];
@@ -55,7 +55,7 @@ export async function render(view, params, { setTitle, query }) {
   }
   function drawFilters() {
     const c = counts();
-    $("#filters", view).innerHTML = String(html`${FILTERS.filter((f) => admin || !f.admin).map((f) => html`<button class="chip ${filter === f.key ? "on" : ""}" data-f="${f.key}">
+    $("#filters", view).innerHTML = String(html`${FILTERS.filter((f) => (admin || !f.admin) && (!f.site || erp.me.site?.configured)).map((f) => html`<button class="chip ${filter === f.key ? "on" : ""}" data-f="${f.key}">
       ${f.label}${c[f.key] !== null && c[f.key] !== undefined ? html` <span class="c-count">${fa(c[f.key])}</span>` : ""}</button>`)}`);
     const cats = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
     $("#cat", view).innerHTML = String(selectOptions(cats.map((c2) => ({ value: c2, label: c2 })), cat, "همه دسته‌ها"));
@@ -67,13 +67,16 @@ export async function render(view, params, { setTitle, query }) {
       el.innerHTML = String(emptyState("package", "محصولی نیست", filter !== "all" ? "فیلتر را عوض کنید." : ""));
       return;
     }
+    // no site connected: one note above the table instead of "no site link" on every row
+    const site = admin && erp.me.site?.configured;
     const totalUnits = list.reduce((s, p) => s + Math.max(0, p.stock), 0);
     const totalValue = list.reduce((s, p) => s + Math.max(0, p.stock) * (p.avg_cost || 0), 0);
     el.innerHTML = String(html`
-      <div class="card-head"><h3>${fa(list.length)} محصول</h3><span class="muted small">، ${fa(totalUnits)} عدد${admin ? html`، ارزش خرید ${compact(totalValue)} تومان` : ""}</span></div>
+      <div class="card-head"><h3>${fa(list.length)} محصول</h3><span class="muted small">، ${fa(totalUnits)} عدد${admin ? html`، ارزش خرید ${compact(totalValue)} تومان` : ""}</span>
+        ${admin && !site ? html`<span class="spacer"></span><a class="small muted" href="#/settings/connections">${icon("unlink", "sm")} سایت وصل نیست؛ تنظیم اتصال</a>` : ""}</div>
       <div class="table-wrap"><table class="t responsive">
         <thead><tr><th>محصول</th><th class="n">قیمت فروش</th>${admin ? html`<th class="n">قیمت خرید</th><th class="n">سود</th>` : ""}
-          <th>موجودی</th>${admin ? html`<th class="n">فروش ۳۰ روز</th><th>سایت</th><th></th>` : ""}</tr></thead>
+          <th>موجودی</th>${admin ? html`<th class="n">فروش ۳۰ روز</th>${site ? html`<th>سایت</th>` : ""}<th></th>` : ""}</tr></thead>
         <tbody>${list.map((p) => {
           const margin = p.price ? (p.price - p.avg_cost) / p.price : 0;
           return html`<tr class="clickable" data-open="${p.id}">
@@ -83,9 +86,8 @@ export async function render(view, params, { setTitle, query }) {
             ${admin ? html`<td class="n m-hide">${num(p.avg_cost)}</td>
               <td class="n m-hide"><span class="${margin < 0.15 ? "warn-ink" : ""}">${p.avg_cost ? pct(margin) : "—"}</span></td>` : ""}
             <td>${stockBadge(p)}</td>
-            ${admin ? html`<td class="n m-hide">${fa(p.sold_30 || 0)}</td><td>${wooBadge(p)}</td>
+            ${admin ? html`<td class="n m-hide">${fa(p.sold_30 || 0)}</td>${site ? html`<td>${wooBadge(p)}</td>` : ""}
               <td class="n m-full" style="white-space:nowrap">
-                ${p.stock > 0 && p.active ? html`<button class="btn xs danger" data-out="${p.id}" title="موجودی را صفر کن">${icon("ban", "sm")} ناموجود</button>` : ""}
                 <button class="btn xs soft" data-adjust="${p.id}">${icon("pencil", "sm")} موجودی</button></td>` : ""}
           </tr>`;
         })}</tbody>
@@ -101,14 +103,6 @@ export async function render(view, params, { setTitle, query }) {
     filter = el.dataset.f;
     if ((prev === "archived") !== (filter === "archived")) await load();
     redraw();
-  });
-  delegate(view, "click", "[data-out]", async (e, el) => {
-    e.stopPropagation();
-    const p = products.find((x) => x.id === Number(el.dataset.out));
-    if (!(await confirmBox(`موجودی «${p.name}» صفر شود؟ ${p.woo_id ? "در سایت هم ناموجود می‌شود." : ""}`, { okText: "ناموجود کن", danger: true }))) return;
-    await api(`/api/erp/products/${p.id}/adjust`, { method: "POST", body: { set_to: 0, reason: "ناموجود کردن سریع" } });
-    toast(`«${p.name}» ناموجود شد`);
-    await load(); redraw();
   });
   delegate(view, "click", "[data-adjust]", (e, el) => {
     e.stopPropagation();
