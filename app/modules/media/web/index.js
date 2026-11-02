@@ -21,7 +21,7 @@ export default {
   /** The unified home page: what needs attention (the studio has no business numbers to show there). */
   glance(d) {
     if (!d.configured) {
-      return { alerts: isOwner() ? [{ tone: "info", ico: "key-round", text: "استودیو محتوا راه‌اندازی نشده", sub: "کلید OpenRouter", href: "#/settings/connections" }] : [] };
+      return { alerts: isOwner() ? [{ tone: "info", ico: "key-round", text: "استودیو محتوا راه‌اندازی نشده", short: "استودیو محتوا", setup: true, sub: "کلید OpenRouter", href: "#/settings/connections" }] : [] };
     }
     const alerts = [];
     if (d.active) alerts.push({ tone: "info", ico: "loader-circle", text: `${fa(d.active)} تصویر/ویدیو در حال ساخت`, href: "#/media/library" });

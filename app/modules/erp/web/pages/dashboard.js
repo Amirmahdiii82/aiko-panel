@@ -98,7 +98,10 @@ function adminHome(d) {
           <span class="small muted row nowrap" style="gap:14px"><span class="row nowrap" style="gap:6px"><i style="width:14px;height:2px;background:var(--chart-1);display:inline-block"></i>${d.period_label}</span>
           <span class="row nowrap" style="gap:6px"><i style="width:14px;height:0;border-top:2px dashed var(--chart-2);display:inline-block"></i>دوره قبل</span></span></div>
         <div class="row" style="align-items:baseline;gap:10px;margin:-4px 0 6px"><span class="money-big">${compact(m.revenue)}</span><span class="small muted">تومان</span>${delta(m.revenue, pm.revenue)}</div>
-        <div class="chart-box"><canvas id="trend-chart" aria-label="نمودار فروش"></canvas></div>
+        ${d.trend.current.some((v) => v) || d.trend.previous.some((v) => v)
+          ? html`<div class="chart-box"><canvas id="trend-chart" aria-label="نمودار فروش"></canvas></div>`
+          : emptyState("chart-line", `در ${d.period_label} فروشی ثبت نشده`, "با اولین فروش، روند اینجا رسم می‌شود.",
+            html`<a class="btn soft sm mt8" href="#/erp/sell">${icon("plus", "sm")} ثبت فروش</a>`)}
       </section>
       <section class="card">
         <div class="card-head"><h2>سهم کانال‌ها</h2><span class="spacer"></span><span class="small muted">${d.period_label}</span></div>

@@ -31,7 +31,7 @@ export default {
 
   /** The unified home page: key numbers and what needs attention. */
   glance(d) {
-    if (!d.products) return { alerts: [{ tone: "info", ico: "chart-line", text: "قیمت رقبا هنوز خوانده نشده", href: "#/pricing" }] };
+    if (!d.products) return { alerts: [{ tone: "info", ico: "chart-line", text: "قیمت رقبا هنوز خوانده نشده", short: "قیمت رقبا", setup: true, href: "#/pricing" }] };
     const alerts = [];
     if (d.running) alerts.push({ tone: "info", ico: "loader-circle", text: "بروزرسانی قیمت رقبا در حال انجام است", href: "#/pricing" });
     if (d.pending_reviews) alerts.push({ tone: "warn", ico: "check-check", text: `${fa(d.pending_reviews)} تطبیق قیمت منتظر تأیید`, href: "#/pricing/review" });

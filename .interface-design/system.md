@@ -112,6 +112,11 @@ controls (badge/chip internals). Gap between groups ≥ 2× the gap inside a gro
 - **Avatar** `.avatar` — neutral (`--surface-3` / `--ink`), never the accent.
 - **Activity feed** — an item shows its module's name only when the list mixes modules (`mixedModules()`).
 - **Payment / account** — the account a sale was paid into is plain text; only «نسیه» / unpaid carries a status badge.
+- **Home «نیاز به توجه»** — operational problems only (out of stock, unpaid, sync errors, pending matches). Everything
+  still to set up (connections, bot, backup, modules not started: alerts with `setup: true`) folds into one
+  «راه‌اندازی: N مورد مانده» row that links to Settings.
+- **Charts with no data** — an empty state with the next step, never a flat line on an invented axis.
+- **Filters on an empty list** — hidden until there is something to filter.
 - **Empty state** `.empty` — icon, title (what this place is), one line (how it fills), one action when there is
   one. Filtered-empty names the filter and offers to clear it.
 

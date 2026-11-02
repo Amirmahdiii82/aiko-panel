@@ -56,6 +56,7 @@ export async function render(view, params, { setTitle, query }) {
   }
   function drawFilters() {
     const c = counts();
+    $("#filters", view).classList.toggle("hidden", !products.length);
     $("#filters", view).innerHTML = String(html`${FILTERS.filter((f) => (admin || !f.admin) && (!f.site || erp.me.site?.configured)).map((f) => html`<button class="chip ${filter === f.key ? "on" : ""}" data-f="${f.key}">
       ${f.label}${c[f.key] !== null && c[f.key] !== undefined ? html` <span class="c-count">${fa(c[f.key])}</span>` : ""}</button>`)}`);
     const cats = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
@@ -65,7 +66,10 @@ export async function render(view, params, { setTitle, query }) {
     const list = visible();
     const el = $("#list", view);
     if (!list.length) {
-      el.innerHTML = String(emptyState("package", "محصولی نیست", filter !== "all" ? "فیلتر را عوض کنید." : ""));
+      el.innerHTML = String(filter !== "all" || q
+        ? emptyState("search", "محصولی با این فیلتر نیست", "فیلتر یا جستجو را عوض کنید.")
+        : emptyState("package", "هنوز محصولی در انبار نیست", "محصولات را یکی‌یکی اضافه کنید، یا اگر سایت وصل است از «همگام‌سازی» بیاورید.",
+          admin ? html`<button class="btn soft mt8" data-new-empty>${icon("plus")} افزودن اولین محصول</button>` : ""));
       return;
     }
     // no site connected: one note above the table instead of "no site link" on every row
@@ -110,6 +114,7 @@ export async function render(view, params, { setTitle, query }) {
     openAdjust(products.find((x) => x.id === Number(el.dataset.adjust)), async () => { await load(); redraw(); });
   });
   delegate(view, "click", "[data-open]", (e, el) => { location.hash = `#/erp/products/${el.dataset.open}`; });
+  delegate(view, "click", "[data-new-empty]", () => $("#new", view)?.click());
   $("#new", view)?.addEventListener("click", () => openProductForm(null, async (id) => { await load(); redraw(); location.hash = `#/erp/products/${id}`; }));
 
   let drawer = null;

@@ -14,7 +14,7 @@ export async function render(view, params, { setTitle, query }) {
       <section class="card">
         ${items.length ? html`<div class="feed" id="feed">${items.map((a) => feedItem(a, { showModule: !module && mixedModules(items) }))}</div>
           <div class="row mt16" style="justify-content:center"><button class="btn sm ghost" id="more">${icon("chevron-down", "sm")} قدیمی‌تر</button></div>`
-          : emptyState("history", "رویدادی نیست")}
+          : emptyState("history", "رویدادی نیست", "فروش، خرید، تغییر موجودی و بروزرسانی‌ها اینجا ثبت می‌شوند.")}
       </section></div>`);
     $("#more", view)?.addEventListener("click", async () => {
       const older = await api(`/api/activity?limit=60&before=${items[items.length - 1].id}${module ? `&module=${module}` : ""}`);

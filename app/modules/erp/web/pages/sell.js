@@ -137,7 +137,8 @@ export async function render(view, params, { setTitle, query }) {
       ${addNew ? html`<button class="pcard new" data-new="1"><span class="pc-img">${icon("package-plus")}</span>
         <span class="pc-body"><span class="pc-name">کالای جدید: «${typed}»</span><span class="pc-meta">به انبار اضافه و در این خرید ثبت می‌شود</span></span></button>` : ""}
       ${list.slice(0, 240).map(card)}`)
-      : String(emptyState("search", "محصولی پیدا نشد", typed ? "عبارت دیگری را امتحان کنید." : mode === "buy" ? "هیچ محصولی کم نیامده؛ «همه» را ببینید." : "هنوز محصولی ثبت نشده."));
+      : String(emptyState("search", "محصولی پیدا نشد", typed ? "عبارت دیگری را امتحان کنید." : mode === "buy" ? "هیچ محصولی کم نیامده؛ «همه» را ببینید." : "هنوز محصولی ثبت نشده.",
+        !typed && !products.length && admin ? html`<a class="btn soft sm mt8" href="#/erp/products">${icon("package", "sm")} رفتن به انبار</a>` : ""));
   }
 
   // ---------------------------------------------------------------- the ticket (cart)

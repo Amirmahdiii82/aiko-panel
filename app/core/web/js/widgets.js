@@ -201,7 +201,7 @@ export function emptyState(ico, title, text = "", action = "") {
 export function kpi({ label, value, unit = "", foot = "", ico = "", title = "", hero = false, href = "", link = "", tone = "" }) {
   const body = html`${ico ? html`<span class="k-icon">${icon(ico)}</span>` : ""}
     <div class="k-label">${label}</div>
-    <div class="k-value num">${value}${unit ? html`<span class="k-unit">${unit}</span>` : ""}</div>
+    <div class="k-value num ${String(value) === "۰" ? "zero" : ""}">${value}${unit ? html`<span class="k-unit">${unit}</span>` : ""}</div>
     ${foot ? html`<div class="k-foot">${foot}</div>` : ""}
     ${link ? html`<div class="k-link">${link}</div>` : ""}`;
   const cls = `kpi ${hero ? "hero" : ""} ${tone}`;

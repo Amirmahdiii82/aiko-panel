@@ -56,10 +56,11 @@ export async function render(view, params, { setTitle }) {
   const drawTodo = () => {
     const el = $("#todo", view);
     if (!el) return;
-    const items = [];
+    // what needs doing today, and separately what is still to set up: one-time setup must not drown a real problem
+    const items = [], setupLeft = [];
     for (const g of glances) {
       if (g.error) items.push({ tone: "bad", ico: "circle-alert", text: `${g.mod.info.name}: ${g.error}`, href: `#/${g.mod.info.id}` });
-      for (const a of g.alerts || []) items.push(a);
+      for (const a of g.alerts || []) (a.setup ? setupLeft.push(a.short || a.text) : items.push(a));
     }
     const du = setup?.drive?.ok && setup.drive.usage;
     if (du && (du.errors || du.held)) {
@@ -70,9 +71,10 @@ export async function render(view, params, { setTitle }) {
       items.push({ tone: "bad", ico: "database", text: "پشتیبان به کانال نرسید", sub: setup.backup.last_error, href: "#/settings/backup" });
     }
     if (setup) {
-      for (const it of ITEMS.filter((i) => !i.optional && !setup[i.key]?.ok)) {
-        items.push({ tone: "warn", ico: it.ico, text: `${it.title} تنظیم نشده`, sub: it.need, href: `#/settings/${it.section}` });
-      }
+      for (const it of ITEMS.filter((i) => !i.optional && !setup[i.key]?.ok)) setupLeft.unshift(it.title);
+    }
+    if (setupLeft.length) {
+      items.push({ tone: "info", ico: "settings", text: `راه‌اندازی: ${fa(setupLeft.length)} مورد مانده`, sub: setupLeft.join("، "), href: "#/settings" });
     }
     $("#todo-count", view).innerHTML = String(todoBadge(items));
     el.innerHTML = String(todoList(items));
@@ -81,7 +83,7 @@ export async function render(view, params, { setTitle }) {
     const items = await api("/api/activity?limit=7", { quiet: true }).catch(() => []);
     const feed = $("#feed", view);
     if (feed) feed.innerHTML = items.length ? String(html`${items.map((a) => feedItem(a, { showModule: mixedModules(items) }))}`)
-      : String(emptyState("history", "هنوز رویدادی نیست"));
+      : String(emptyState("history", "هنوز رویدادی نیست", "فروش، خرید و بروزرسانی‌ها اینجا می‌آیند."));
   };
   await Promise.all([loadGlances(), loadSetup(), loadFeed()]);
   drawTodo();
