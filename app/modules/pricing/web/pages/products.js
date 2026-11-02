@@ -1,6 +1,6 @@
 // Every product of the site against every competitor, with filters; a row opens the product detail.
 import { $, api, debounce, delegate, emptyState, html, icon, storage } from "/static/js/kit.js";
-import { P, POS, bindTips, gapBadge, img, ladder, n, openProduct, posBadge, refreshMeta, siteName } from "../pricing.js";
+import { P, POS, bindTips, img, ladder, n, openProduct, posGap, refreshMeta, siteName } from "../pricing.js";
 
 const SORTS = [["gap", "گران‌ترین نسبت به رقبا"], ["gap_asc", "ارزان‌ترین نسبت به رقبا"], ["impact", "بیشترین اثر مالی"],
   ["sites", "بیشترین رقیب"], ["price", "قیمت (زیاد به کم)"], ["name", "نام"]];
@@ -49,23 +49,35 @@ export async function render(view, params, { setTitle }) {
     P.filters.opportunity = b.dataset.o || "";
     load();
   });
-  delegate(view, "click", "tr[data-pid]", (e, r) => openProduct(+r.dataset.pid, { onChange: load }));
+  delegate(view, "click", "[data-pid]", (e, r) => openProduct(+r.dataset.pid, { onChange: load }));
   await load();
 }
 
 function table(items, total) {
-  if (!items.length) return emptyState("search", "محصولی با این فیلترها پیدا نشد");
-  return html`<table class="t"><thead><tr>
+  if (!items.length) {
+    const filtered = ["q", "position", "brand", "site", "opportunity"].some((k) => P.filters[k]);
+    return filtered ? emptyState("search", "محصولی با این فیلترها پیدا نشد", "فیلترها یا جستجو را تغییر دهید.")
+      : emptyState("package", "هنوز محصولی خوانده نشده", "با «بروزرسانی قیمت‌ها» محصولات سایت و قیمت رقبا خوانده می‌شود.");
+  }
+  // thumbnails are decided for the whole list, not per row: either every row keeps the slot or none does
+  const thumbs = items.some((r) => r.image);
+  const pending = (r) => (r.n_pending ? html` · <span class="badge warn">${n(r.n_pending)} منتظر تأیید</span>` : "");
+  return html`<table class="t desk-only"><thead><tr>
       <th>محصول</th><th class="n">قیمت شما</th><th class="n">ارزان‌ترین رقیب</th><th class="n">میانه بازار</th>
-      <th>اختلاف با ارزان‌ترین</th><th>بازه قیمت بازار</th><th>جایگاه</th></tr></thead><tbody>
+      <th title="هر نقطه یک رقیب، لوزی قیمت شما؛ راست‌تر یعنی ارزان‌تر">بازه قیمت بازار</th><th>جایگاه نسبت به ارزان‌ترین</th></tr></thead><tbody>
     ${items.map((r) => html`<tr class="clickable" data-pid="${r.id}">
-      <td><div class="prod-cell">${img(r.image)}<div style="min-width:0"><div class="name">${r.name}</div>
-        <div class="meta">${r.brand || ""}${r.n_pending ? html` · <span class="badge warn">${n(r.n_pending)} منتظر تأیید</span>` : ""}</div></div></div></td>
+      <td><div class="prod-cell">${thumbs ? img(r.image) : ""}<div style="min-width:0"><div class="name">${r.name}</div>
+        <div class="meta">${r.brand || ""}${pending(r)}</div></div></div></td>
       <td class="n"><b>${n(r.my_price)}</b>${!r.in_stock ? html`<div class="small muted">ناموجود</div>` : ""}</td>
-      <td class="n">${r.min ? html`${n(r.min)}<div class="small muted">${siteName(r.cheapest_site)}</div>` : "—"}</td>
-      <td class="n">${n(r.median)}<div class="small muted">${r.n_sites ? `${n(r.n_sites)} سایت · ${n(r.n_listings)} فروشنده` : ""}</div></td>
-      <td>${gapBadge(r.gap_min_pct)}</td>
+      <td class="n">${r.min ? html`${n(r.min)}<div class="small muted">${siteName(r.cheapest_site)}</div>` : html`<span class="muted">—</span>`}</td>
+      <td class="n">${r.median ? html`${n(r.median)}<div class="small muted">${n(r.n_sites)} سایت · ${n(r.n_listings)} فروشنده</div>` : html`<span class="muted">—</span>`}</td>
       <td>${ladder(r)}</td>
-      <td>${posBadge(r.position)}</td></tr>`)}
-    </tbody></table><p class="small muted mt8">${n(total)} محصول · قیمت‌ها به تومان</p>`;
+      <td>${posGap(r.position, r.gap_min_pct)}</td></tr>`)}
+    </tbody></table>
+    <div class="p-mlist phone-only">${items.map((r) => html`<div class="list-item clickable" data-pid="${r.id}">
+      ${thumbs ? img(r.image) : ""}
+      <div class="grow"><div class="title">${r.name}</div>
+        <div class="sub">شما <b class="num">${n(r.my_price)}</b>${r.min ? html` · ارزان‌ترین <span class="num">${n(r.min)}</span> در ${siteName(r.cheapest_site)}` : ""}${!r.in_stock ? " · ناموجود" : ""}${pending(r)}</div></div>
+      ${posGap(r.position, r.gap_min_pct)}</div>`)}</div>
+    <p class="small muted mt8">${n(total)} محصول · قیمت‌ها به تومان</p>`;
 }

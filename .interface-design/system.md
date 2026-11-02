@@ -94,6 +94,19 @@ controls (badge/chip internals). Gap between groups ≥ 2× the gap inside a gro
 - **Empty state** `.empty` — icon, title (what this place is), one line (how it fills), one action when there is
   one. Filtered-empty names the filter and offers to clear it.
 
+## Pricing module
+
+- Position (cheapest / close / above / far above / unique / no price) uses status colours plus a mark (✓ ≈ ▲ ▲▲ ★ –),
+  so colour is never the only cue. "Unique" and "no price" are neutral badges, never pink.
+- One cell for where a product stands: `posGap()` = mark + short label + gap % to the cheapest competitor. No separate
+  gap column.
+- Match score bars are neutral (`--ink-2`), not the accent. Your side of a review card is a `--surface-2` inset.
+- Run history shows one line of counts per run ("۶ موفق · ۱ مسدود"); the per-site detail opens in a `<details>`.
+- Products on phones render as a list (name, your price vs cheapest, position badge), not a sideways-scrolling table.
+- `.phone-only` / `.desk-only` split one action between the page header (desktop) and the page body (phone), so a
+  view never shows the same action twice.
+- Charts of real data use `cubicInterpolationMode: "monotone"` so a smoothed line never invents values.
+
 ## Motion
 
 Every transition uses `--ease-*` / `--dur-*`. Enter/exit ease-out, on-screen movement ease-in-out, sheets

@@ -39,9 +39,14 @@ export const POS = {
   close: { label: "رقابتی (تا ۳٪)", cls: "info", color: "var(--pos-info)", mark: "≈" },
   above: { label: "گران‌تر (۳ تا ۱۰٪)", cls: "warn", color: "var(--pos-warn)", mark: "▲" },
   far_above: { label: "خیلی گران‌تر (+۱۰٪)", cls: "bad", color: "var(--pos-bad)", mark: "▲▲" },
-  unique: { label: "بدون رقیب", cls: "primary", color: "var(--pos-violet)", mark: "★" },
+  unique: { label: "بدون رقیب", cls: "", color: "var(--pos-violet)", mark: "★" },
   no_price: { label: "بدون قیمت / ناموجود", cls: "", color: "var(--pos-none)", mark: "–" },
 };
+const POS_SHORT = { cheapest: "ارزان‌ترین", close: "رقابتی", above: "گران‌تر", far_above: "خیلی گران‌تر", unique: "بدون رقیب", no_price: "بدون قیمت" };
+/** Position and the gap to the cheapest competitor in one badge: the label says where you stand, the number how far. */
+export const posGap = (p, gap) => (p && POS[p]
+  ? html`<span class="badge ${POS[p].cls} nowrap" title="${POS[p].label}">${POS[p].mark} ${POS_SHORT[p]}${gap != null && p !== "unique" && p !== "no_price" ? html` <span class="num">${pc(gap)}</span>` : ""}</span>`
+  : "");
 export const posBadge = (p) => (p && POS[p] ? html`<span class="badge ${POS[p].cls}" title="${POS[p].label}">${POS[p].mark} ${POS[p].label}</span>` : "");
 export const gapBadge = (g) => {
   if (g == null) return html`<span class="muted">—</span>`;

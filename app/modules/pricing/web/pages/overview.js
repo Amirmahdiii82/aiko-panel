@@ -70,7 +70,7 @@ export async function render(view, params, { setTitle }) {
           ${dist.map((d) => html`<button style="flex:${d.count};background:${POS[d.key].color}" data-pos="${d.key}"
             data-tip="${`${POS[d.key].label}: ${n(d.count)} محصول (${n(Math.round((d.count / totalDist) * 100))}٪)`}"></button>`)}
         </div>
-        <div class="legend">${s.distribution.map((d) => html`<button data-pos="${d.key}"><span class="dot" style="color:${POS[d.key].color}"></span>${POS[d.key].mark} ${POS[d.key].label} <b class="num">${n(d.count)}</b></button>`)}</div>
+        <div class="legend">${s.distribution.map((d) => html`<button data-pos="${d.key}"><span class="dot" style="color:${POS[d.key].color}"></span>${POS[d.key].label} <b class="num">${n(d.count)}</b></button>`)}</div>
       </section>
       <section class="grid g2">
         <div class="card">
@@ -142,7 +142,7 @@ function crawlStatus(m, s) {
     <span class="small muted">${next ? `بروزرسانی خودکار بعدی: ساعت ${next}` : "بروزرسانی خودکار خاموش است"}</span>
     <span class="spacer" style="flex:1"></span>
     <a class="btn sm ghost" href="/api/pricing/export.csv">${icon("download", "sm")} خروجی اکسل</a>
-    ${canEdit() ? html`<button class="btn sm soft" data-crawl>${icon("refresh-cw", "sm")} بروزرسانی الان</button>` : ""}
+    ${canEdit() ? html`<button class="btn sm soft phone-only" data-crawl>${icon("refresh-cw", "sm")} بروزرسانی الان</button>` : ""}
   </div>`;
 }
 
@@ -196,7 +196,7 @@ function drawIndexCharts(hist, charts) {
     const c = chartBase(spark);
     charts.push(new Chart(spark, {
       type: "line",
-      data: { labels, datasets: [{ data: hist.map((h) => h.index), borderColor: c.accent, borderWidth: 2, pointRadius: 0, tension: 0.3,
+      data: { labels, datasets: [{ data: hist.map((h) => h.index), borderColor: c.accent, borderWidth: 2, pointRadius: 0, tension: 0.3, cubicInterpolationMode: "monotone",
         fill: { target: { value: 100 }, above: hexA(c.accent, 0.08), below: hexA(c.accent, 0.08) } }] },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false } } },
     }));
@@ -207,7 +207,7 @@ function drawIndexCharts(hist, charts) {
   charts.push(new Chart(el, {
     type: "line",
     data: { labels, datasets: [
-      { label: "شاخص قیمت شما", data: hist.map((h) => h.index), borderColor: c.accent, backgroundColor: c.accent, borderWidth: 2, pointRadius: hist.length > 20 ? 0 : 4, pointBorderColor: c.surface, pointBorderWidth: 2, tension: 0.25 },
+      { label: "شاخص قیمت شما", data: hist.map((h) => h.index), borderColor: c.accent, backgroundColor: c.accent, borderWidth: 2, pointRadius: hist.length > 20 ? 0 : 4, pointBorderColor: c.surface, pointBorderWidth: 2, tension: 0.25, cubicInterpolationMode: "monotone" },
       { label: "میانه بازار (۱۰۰)", data: hist.map(() => 100), borderColor: c.market2, borderWidth: 1, pointRadius: 0 },
     ] },
     options: lineOptions(c, (v) => nf1.format(v), (ctx) => ctx.datasetIndex === 0 ? `شاخص: ${nf1.format(ctx.parsed.y)} · ارزان‌ترین در ${n(hist[ctx.dataIndex].cheapest_share)}٪ محصولات` : null),

@@ -14,7 +14,7 @@ export async function render(view, params, { setTitle }) {
     view.innerHTML = String(html`<div class="stack pricing">
       ${canEdit() ? html`<form class="card" id="npForm">
         <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 110px auto;align-items:end" id="npGrid">
-          <div class="field"><label>نام محصول *</label><input class="input" name="name" required placeholder="مثلاً: رژگونه استیکی شیگلم Buttery Bliss Blush Stick"></div>
+          <div class="field"><label>نام محصول *</label><input class="input" name="name" required placeholder="مثلاً: رژگونه استیکی شیگلم"></div>
           <div class="field"><label>برند</label><input class="input" name="brand" placeholder="مثلاً: SHEGLAM"></div>
           <div class="field"><label>قیمت خرید شما (تومان)</label><input class="input money" name="cost" inputmode="numeric" placeholder="اختیاری"></div>
           <div class="field"><label>حداقل سود ٪</label><input class="input" name="margin" inputmode="numeric" value="۲۵"></div>

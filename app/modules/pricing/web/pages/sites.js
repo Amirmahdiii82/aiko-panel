@@ -8,6 +8,18 @@ const STATUS = {
   failed: html`<span class="badge bad">✕ خطا</span>`, running: html`<span class="badge info">در حال اجرا</span>`,
   skipped: html`<span class="badge warn" title="بعد از مسدود شدن، یک دور استراحت می‌کند">⏸ استراحت</span>`,
 };
+// A run's sites as one line of counts ("۷ موفق · ۱ مسدود"); the per-site detail opens on demand.
+const RUN_LABEL = { ok: "موفق", partial: "ناقص", blocked: "مسدود", failed: "خطا", running: "در حال اجرا", skipped: "استراحت" };
+const RUN_TONE = { ok: "", partial: "warn-ink", blocked: "bad-ink", failed: "bad-ink", running: "", skipped: "muted" };
+function runSites(sites) {
+  if (!sites.length) return html`<span class="muted">—</span>`;
+  const counts = {};
+  sites.forEach((s) => { counts[s.status] = (counts[s.status] || 0) + 1; });
+  const summary = Object.keys(RUN_LABEL).filter((k) => counts[k])
+    .map((k) => html`<span class="${RUN_TONE[k]}">${n(counts[k])} ${RUN_LABEL[k]}</span>`);
+  return html`<details class="run-sites"><summary class="small">${summary.map((x, i) => html`${i ? " · " : ""}${x}`)}</summary>
+    <div class="offer-meta mt8">${sites.map((s) => html`<span title="${s.last_error || ""}">${P.siteNames[s.site] || s.site}: ${STATUS[s.status] || ""} <span class="num">${n(s.found)}</span></span>`)}</div></details>`;
+}
 const TRIGGER = { schedule: "زمان‌بندی", manual: "دستی", cli: "خط فرمان", startup: "شروع برنامه", resume: "ادامه بعد از ری‌استارت" };
 
 export async function render(view, params, { setTitle }) {
@@ -40,7 +52,7 @@ export async function render(view, params, { setTitle }) {
             : html`<span class="badge bad" title="${c.stats?.error || ""}">ناموفق</span>`}
             ${c.stats?.error ? html`<div class="small muted">${c.stats.error}</div>` : ""}</td>
           <td class="n">${n(c.stats?.products)}</td>
-          <td><div class="offer-meta">${c.sites.map((s) => html`<span title="${s.last_error || ""}">${P.siteNames[s.site] || s.site}: ${STATUS[s.status] || ""} <span class="num">${n(s.found)}</span></span>`)}</div></td></tr>`)
+          <td>${runSites(c.sites)}</td></tr>`)
           : html`<tr><td colspan="5">${emptyState("history", "هنوز اجرایی نبوده")}</td></tr>`}
         </tbody></table></div></section>
     </div>`);
