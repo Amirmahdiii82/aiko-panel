@@ -414,9 +414,11 @@ a.kpi:active { transform: scale(.985); }
 .chip.big { height: 46px; padding: 0 var(--sp-5); font-size: var(--fs-body); }
 .c-count { font-size: var(--fs-micro); background: var(--surface-3); border-radius: var(--r-full); padding: 0 var(--sp-2); color: var(--muted); line-height: 18px; }
 
-.seg { position: relative; display: inline-flex; padding: var(--sp-1); gap: var(--sp-0-5); border-radius: var(--r-full); background: var(--track); box-shadow: inset 0 0 0 1px var(--line); }
+.seg { position: relative; display: inline-flex; padding: var(--sp-1); gap: var(--sp-0-5); border-radius: var(--r-full); background: var(--track); box-shadow: inset 0 0 0 1px var(--line);
+  max-width: 100%; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+.seg::-webkit-scrollbar { display: none; }
 .seg button {
-  position: relative; z-index: 1; border: 0; background: transparent; height: 32px; padding: 0 var(--sp-4); border-radius: var(--r-full); color: var(--muted); font-weight: 500; font-size: var(--fs-small);
+  position: relative; z-index: 1; flex: none; white-space: nowrap; border: 0; background: transparent; height: 32px; padding: 0 var(--sp-4); border-radius: var(--r-full); color: var(--muted); font-weight: 500; font-size: var(--fs-small);
   transition: background-color 150ms ease, color 150ms ease, box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-press) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) { .seg button:not(.on):hover { color: var(--ink); } }
@@ -994,4 +996,14 @@ details.card.fold[open] > summary { margin-bottom: var(--sp-3); }
 /* phone tab rows scroll sideways: fade the far (end) edge so a cut-off tab reads as "more this way", not as a bug */
 @media (max-width: 900px) {
   .subnav { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - var(--sp-8)), transparent); mask-image: linear-gradient(to left, #000 calc(100% - var(--sp-8)), transparent); }
+}
+
+@media (max-width: 900px) {
+  /* a segmented control wider than the phone scrolls sideways (one line per label), faded at the far edge */
+  .seg { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - var(--sp-6)), transparent); mask-image: linear-gradient(to left, #000 calc(100% - var(--sp-6)), transparent); }
+  .seg:not(:has(> button:nth-of-type(5))) { -webkit-mask-image: none; mask-image: none; }
+  /* the hero's unit stays an inline-block (so the signature rule stays under the figure only) but takes its own line,
+     like every other unit on phones */
+  .kpi.hero .k-unit { width: 100%; }
+  .kpi.hero .k-value { white-space: normal; overflow: visible; }
 }
