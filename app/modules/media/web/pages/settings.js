@@ -27,7 +27,7 @@ export async function render(view, params, { setTitle }) {
       <section class="card">
         <div class="card-head"><h2>${icon("dollar-sign")} هزینه</h2></div>
         <div class="money-big num ltr" style="text-align:right">${usd(cfg.month_spend) || "$0"}</div>
-        <p class="small muted">هزینه گزارش‌شده OpenRouter برای ساخته‌های این ماه${cfg.monthly_limit_usd ? ` · سقف: ${usd(cfg.monthly_limit_usd)}` : ""}</p>
+        <p class="small muted">هزینه گزارش‌شده OpenRouter برای ساخته‌های این ماه${cfg.monthly_limit_usd ? `، سقف: ${usd(cfg.monthly_limit_usd)}` : ""}</p>
         <div class="divider"></div>
         <ul class="small" style="line-height:2.1;padding-inline-start:20px">
           <li>قبل از هر ساخت، قیمت اعلام‌شده هر مدل نشان داده و تأیید گرفته می‌شود.</li>

@@ -66,7 +66,7 @@ function tile(g) {
     <span class="lib-thumb">${thumb}<span class="kind badge">${icon(g.kind === "video" ? "video" : "image", "sm")}${g.kind === "image" && g.outputs?.length > 1 ? fa(g.outputs.length) : ""}</span>
       ${g.favorite ? html`<span class="fav">${icon("heart")}</span>` : ""}</span>
     <span class="lib-body"><span class="t">${g.prompt}</span>
-      <span class="m">${g.model_name || g.model_id}${g.cost != null ? ` · ${usd(g.cost)}` : ""}${g.created_by_name ? ` · ${g.created_by_name}` : ""}</span>
+      <span class="m">${g.model_name || g.model_id}${g.cost != null ? `، ${usd(g.cost)}` : ""}${g.created_by_name ? `، ${g.created_by_name}` : ""}</span>
       ${g.status !== "completed" ? statusBadge(g.status) : ""}</span>
   </button>`;
 }

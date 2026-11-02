@@ -51,7 +51,7 @@ export async function render(view, params, { setTitle }) {
     let d;
     try { d = await api(`/api/pricing/newproducts/${id}`); } catch (e) { view.innerHTML = String(emptyState("search", e.message)); return; }
     P.siteNames = { ...P.siteNames, ...d.site_names };
-    setTitle(d.name, `${d.brand ? `${d.brand} · ` : ""}${d.status === "running" ? "در حال جستجو در رقبا…" : `آخرین بررسی ${ago(d.updated_at)}`}`);
+    setTitle(d.name, `${d.brand ? `${d.brand}، ` : ""}${d.status === "running" ? "در حال جستجو در رقبا…" : `آخرین بررسی ${ago(d.updated_at)}`}`);
     const sm = d.summary, running = d.status === "running";
     const excluded = new Set(d.excluded_sites);
     const isIn = (l) => { const k = `${l.site}:${l.external_id}`; return k in d.choices ? d.choices[k] && !!l.price : l.score >= d.auto && l.in_stock && !!l.price && !excluded.has(l.site); };
@@ -89,8 +89,8 @@ export async function render(view, params, { setTitle }) {
       ${sm.strategies.length ? html`<div class="grid g3">${sm.strategies.map((x) => html`<button class="kpi ${x.key === sm.recommended ? "hero" : ""} ${x.key === chosen?.key ? "on" : ""}" data-strategy="${x.key}">
         <span class="k-label">${x.key === sm.recommended ? icon("star", "sm") : ""}${x.label}</span>
         <span class="k-value num">${n(x.price)}</span>
-        <span class="k-foot">${x.rank === 1 ? "ارزان‌ترین بازار" : `رتبه ${n(x.rank)} از ${n(x.of)}`} · ${x.hint}</span>
-        ${x.margin != null ? html`<span class="badge ${x.ok ? "ok" : "bad"}" style="align-self:flex-start;margin-top:8px">${x.ok ? "✓" : "✕"} سود ${pc(x.margin, false)} · ${n(x.profit)} تومان</span>` : ""}
+        <span class="k-foot">${x.rank === 1 ? "ارزان‌ترین بازار" : `رتبه ${n(x.rank)} از ${n(x.of)}`}، ${x.hint}</span>
+        ${x.margin != null ? html`<span class="badge ${x.ok ? "ok" : "bad"}" style="align-self:flex-start;margin-top:8px">${x.ok ? "✓" : "✕"} سود ${pc(x.margin, false)}، ${n(x.profit)} تومان</span>` : ""}
       </button>`)}</div>` : ""}
       ${sm.n_sites ? html`<div class="kv">
         <div><div class="k">سایت‌هایی که دارند</div><div class="v">${n(sm.n_sites)}</div></div>

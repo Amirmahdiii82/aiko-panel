@@ -83,13 +83,13 @@ function adminHome(d) {
 
     <div class="kpi-strip">
       ${moneyKpi({ hero: true, label: `فروش ${d.period_label}`, amount: m.revenue, href: "#/erp/sales",
-        foot: html`${delta(m.revenue, pm.revenue)} <span>${vs}</span>`, link: html`${fa(m.orders)} سفارش · امروز ${compact(d.today.revenue)}` })}
+        foot: html`${delta(m.revenue, pm.revenue)} <span>${vs}</span>`, link: html`${fa(m.orders)} سفارش، امروز ${compact(d.today.revenue)}` })}
       ${moneyKpi({ label: one ? "سود ناخالص" : "سود خالص", amount: one ? m.gross : m.net, ico: "piggy-bank", tone: (one ? m.gross : m.net) < 0 ? "bad" : "",
-        foot: html`${delta(one ? m.gross : m.net, one ? pm.gross : pm.net)} <span>حاشیه ${pct(m.margin)}${one ? "" : ` · هزینه‌ها ${compact(m.expenses)}`}</span>` })}
+        foot: html`${delta(one ? m.gross : m.net, one ? pm.gross : pm.net)} <span>حاشیه ${pct(m.margin)}${one ? "" : `، هزینه‌ها ${compact(m.expenses)}`}</span>` })}
       ${moneyKpi({ label: "میانگین هر سفارش", amount: m.avg_order, ico: "receipt",
         foot: html`${delta(m.avg_order, pm.avg_order)} <span>${fa(m.items)} قلم فروخته شد</span>` })}
       ${kpi({ label: "ارزش انبار", value: compact(inv.cost_value), unit: "تومان", ico: "boxes", title: `${toman(inv.cost_value)} به قیمت خرید`,
-        foot: html`<span>${fa(inv.units)} عدد · به قیمت فروش ${compact(inv.retail_value)}</span>`, href: "#/erp/products" })}
+        foot: html`<span>${fa(inv.units)} عدد، به قیمت فروش ${compact(inv.retail_value)}</span>`, href: "#/erp/products" })}
     </div>
 
     <div class="grid side">
@@ -107,7 +107,7 @@ function adminHome(d) {
           <div class="split-bar">${d.channels.map((c, i) => html`<span class="s${Math.min(i, 2)}" style="width:${Math.max(2, (c.revenue / chTotal) * 100)}%" title="${c.label}"></span>`)}</div>
           <div class="mt12">${d.channels.map((c, i) => html`<div class="ch-row">
             <span class="sw s${Math.min(i, 2)}"></span>
-            <div class="grow"><b>${icon(CHANNEL_ICON[c.channel] || "tag", "sm")} ${c.label}</b><span>${fa(c.orders)} سفارش · میانگین ${compact(c.revenue / Math.max(1, c.orders))}</span></div>
+            <div class="grow"><b>${icon(CHANNEL_ICON[c.channel] || "tag", "sm")} ${c.label}</b><span>${fa(c.orders)} سفارش، میانگین ${compact(c.revenue / Math.max(1, c.orders))}</span></div>
             <div class="amt">${compact(c.revenue)}</div></div>`)}</div>`
           : emptyState("layers", `در ${d.period_label} فروشی نیست`)}
       </section>

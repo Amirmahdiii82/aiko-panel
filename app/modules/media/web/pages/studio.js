@@ -295,7 +295,7 @@ export async function render(view, params, { setTitle, query }) {
       foot: html`<button class="btn primary" data-close>${icon("check")} تأیید</button>` });
     const draw = () => {
       const list = models().filter((m) => `${m.name || ""} ${m.id} ${m.description || ""}`.toLowerCase().includes(term));
-      s.root.querySelector("#mcount").textContent = `${fa(list.length)} مدل${st.compare ? ` · ${fa(st.selection[st.mode].length)} از ${fa(MAX_COMPARE)} انتخاب شده` : ""}`;
+      s.root.querySelector("#mcount").textContent = `${fa(list.length)} مدل${st.compare ? `، ${fa(st.selection[st.mode].length)} از ${fa(MAX_COMPARE)} انتخاب شده` : ""}`;
       s.root.querySelector("#mlist").innerHTML = list.length ? String(html`${list.map((m) => html`<button class="model-opt ${st.selection[st.mode].includes(m.id) ? "on" : ""}" data-model="${m.id}">
         ${provAvatar(m.id)}<span class="mo-copy"><strong>${m.name || m.id}</strong>
           <span class="model-tags"><span>${m.id.split("/")[0]}</span>${capabilityTags(m).map((t) => html`<span>${t}</span>`)}

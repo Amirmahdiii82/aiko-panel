@@ -193,7 +193,7 @@ export function dotPlot(offers, my, { label = "شما", floor = null } = {}) {
       ${i === 0 && my ? `<div class="plot-me" style="right:${pos(my)}%;top:-24px;bottom:-${h}px"></div><div class="plot-me-label" style="right:${pos(my)}%">${esc(label)} ${n(my)}</div>` : ""}
       ${i === 0 && floor ? `<div class="plot-me plot-floor" style="right:${pos(floor)}%;top:-24px;bottom:-${h}px" title="حداقل قیمت برای رسیدن به سود هدف"></div><div class="plot-me-label plot-floor-label" style="right:${pos(floor)}%;top:auto;bottom:-${h + 22}px">کف سود ${n(floor)}</div>` : ""}
       ${list.map((o) => `<span class="plot-dot ${o.status === "pending" ? "pending" : ""} ${!o.in_stock || !o.fresh ? "oos" : ""}" style="right:${pos(o.price)}%"
-        data-tip="${esc(`<b>${n(o.price)} تومان</b><br>${esc(siteName(o.site))}${o.seller ? " · " + esc(o.seller) : ""}<br>${esc(o.title)}${o.status === "pending" ? "<br>منتظر تأیید" : ""}${!o.in_stock ? "<br>ناموجود" : ""}`)}"></span>`).join("")}
+        data-tip="${esc(`<b>${n(o.price)} تومان</b><br>${esc(siteName(o.site))}${o.seller ? "، " + esc(o.seller) : ""}<br>${esc(o.title)}${o.status === "pending" ? "<br>منتظر تأیید" : ""}${!o.in_stock ? "<br>ناموجود" : ""}`)}"></span>`).join("")}
     </div></div>`).join("")}
     <div class="plot-axis"><div></div><div class="plot-axis-in">${ticks.map((t) => `<span style="right:${pos(t)}%">${short(Math.round(t))}</span>`).join("")}</div></div>
   </div>`);
@@ -258,7 +258,7 @@ const STATUS_BADGE = {
 export const isWarnReason = (r) => /متفاوت|نیامده|نیست/.test(r);
 export function scoreBar(o) {
   const v = Math.round((o.score || 0) * 100);
-  return html`<span class="score" title="${(o.reasons || []).join(" · ")}">تطابق <i><b style="width:${v}%"></b></i> ${n(v)}٪</span>`;
+  return html`<span class="score" title="${(o.reasons || []).join("، ")}">تطابق <i><b style="width:${v}%"></b></i> ${n(v)}٪</span>`;
 }
 function sellersTable(sellers, mine = true) {
   return sellers && sellers.length > 1 ? html`<details class="sellers"><summary>${n(sellers.length)} فروشنده / تنوع در این آگهی</summary>
@@ -282,8 +282,8 @@ function offerRow(o, my) {
         ${STATUS_BADGE[o.status] || ""}${notes}
       </div>
     </div>
-    <div class="offer-price"><b class="num">${n(o.price)}</b>${disc ? html` <span class="badge bad">${n(disc)}٪ تخفیف</span>` : ""}
-      ${o.unit_price ? html`<div class="small muted">بسته ${n(o.pack)}تایی · هر عدد <b class="num">${n(o.unit_price)}</b></div>` : ""}
+    <div class="offer-price"><b class="num">${n(o.price)}</b>${disc ? html` <span class="badge">${n(disc)}٪ تخفیف</span>` : ""}
+      ${o.unit_price ? html`<div class="small muted">بسته ${n(o.pack)}تایی، هر عدد <b class="num">${n(o.unit_price)}</b></div>` : ""}
       ${my && o.price ? html`<div class="small muted">${unitOf(o) < my ? "ارزان‌تر از شما" : unitOf(o) > my ? "گران‌تر از شما" : "هم‌قیمت"}</div>` : ""}</div>
     ${canEdit() ? html`<div class="row nowrap" style="gap:6px">
       <button class="btn sm icon ok-btn ${o.status === "confirmed" ? "on" : ""}" data-oid="${o.id}" data-st="confirmed" title="همین محصول است">${icon("check", "sm")}</button>
@@ -297,7 +297,7 @@ function siteGroup(site, offers, my) {
   const min = counted.length ? Math.min(...counted.map(unitOf)) : null;
   return html`<div class="site-group">
     <div class="site-head"><b>${siteName(site)}</b>
-      <span class="small muted">${min ? html`ارزان‌ترین: <b class="num">${n(min)}</b> ${my ? gapBadge(Math.round(((my - min) / min) * 1000) / 10) : ""}` : "آگهی معتبر موجود نیست"} · ${n(offers.length)} آگهی</span></div>
+      <span class="small muted">${min ? html`ارزان‌ترین: <b class="num">${n(min)}</b> ${my ? gapBadge(Math.round(((my - min) / min) * 1000) / 10) : ""}` : "آگهی معتبر موجود نیست"}، ${n(offers.length)} آگهی</span></div>
     ${offers.map((o) => offerRow(o, my))}
   </div>`;
 }
@@ -319,13 +319,13 @@ export async function openProduct(id, { onChange } = {}) {
     });
     s.root.querySelector(".sheet-head h2").textContent = p.name;
     s.root.querySelector(".sheet-body").innerHTML = String(html`<div class="stack">
-      <div class="row">${img(p.image, "thumb lg")}<div class="grow" style="min-width:0">
+      <div class="row">${p.image ? img(p.image, "thumb lg") : ""}<div class="grow" style="min-width:0">
         <div class="offer-meta">${p.brand ? html`<span class="badge">${p.brand}</span>` : ""}${posBadge(a.position)}
           ${p.permalink ? html`<a href="${safeUrl(p.permalink)}" target="_blank" rel="noopener">مشاهده در سایت شما ↗</a>` : ""}
           ${p.sku ? html`<span class="ltr">SKU: ${p.sku}</span>` : ""}</div></div></div>
       ${insightBox(a)}
       <div class="kv">
-        <div><div class="k">قیمت شما</div><div class="v num">${n(a.my_price)}</div>${a.my_regular && a.my_regular > a.my_price ? html`<div class="small muted"><s>${n(a.my_regular)}</s></div>` : ""}</div>
+        <div class="kv-me"><div class="k">قیمت شما</div><div class="v num">${n(a.my_price)}</div>${a.my_regular && a.my_regular > a.my_price ? html`<div class="small muted"><s>${n(a.my_regular)}</s></div>` : ""}</div>
         <div><div class="k">ارزان‌ترین رقیب</div><div class="v num">${n(a.min)}</div><div class="small muted">${a.cheapest_site ? siteName(a.cheapest_site) : ""}</div></div>
         <div><div class="k">میانه بازار</div><div class="v num">${n(a.median)}</div><div class="small muted">${a.index ? `شاخص ${nf1.format(a.index)}` : ""}</div></div>
         <div><div class="k">رتبه شما</div><div class="v">${a.rank ? `${n(a.rank)} از ${n(a.n_sites + 1)}` : "—"}</div><div class="small muted">۱ = ارزان‌ترین</div></div>

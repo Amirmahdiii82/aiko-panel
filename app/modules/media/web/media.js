@@ -38,7 +38,7 @@ export function describePricing(model, limit = 3) {
   if (!e.length) return "قیمت اعلام‌شده‌ای نیست";
   const shown = e.slice(0, limit).map((x) => `${humanize(x.sku)}: ${usd(x.value)}`);
   if (e.length > limit) shown.push(`+${e.length - limit}`);
-  return shown.join(" · ");
+  return shown.join("، ");
 }
 
 // ---------------------------------------------------------------- live capabilities
@@ -132,7 +132,7 @@ export function specs(g) {
   const parts = [r.resolution || r.size || "پیش‌فرض", r.aspect_ratio || "پیش‌فرض"];
   if (g.kind === "image") parts.push(`${fa(r.n || 1)} تصویر`);
   else parts.push(r.duration ? `${fa(r.duration)} ثانیه` : "پیش‌فرض");
-  return parts.join(" · ");
+  return parts.join("، ");
 }
 const ratioCss = (g) => {
   const r = g.request?.aspect_ratio || g.request?.size?.replace("x", ":") || (g.kind === "image" ? "1:1" : "16:9");

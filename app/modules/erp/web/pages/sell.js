@@ -114,7 +114,7 @@ export async function render(view, params, { setTitle, query }) {
     const inCart = cart().get(p.id)?.qty || 0;
     const left = p.stock - (mode === "sell" ? inCart : 0);
     const out = mode === "sell" && left <= 0 && !(p.woo_state === "nocount" && p.woo_in_stock);
-    const meta2 = [p.brand, p.sku].filter(Boolean).join(" · ");
+    const meta2 = [p.brand, p.sku].filter(Boolean).join("، ");
     return html`<button class="pcard ${out ? "out" : ""} ${inCart ? "on" : ""}" data-add="${p.id}" title="${p.name}">
       ${inCart ? html`<span class="pc-qty">${fa(inCart)}</span>` : ""}
       <span class="pc-img">${p.image ? html`<img src="${p.image}" alt="" loading="lazy" referrerpolicy="no-referrer">` : icon("package")}</span>

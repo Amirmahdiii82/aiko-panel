@@ -1,6 +1,6 @@
 // App shell: login, the top bar (sections), the tool dock, page tabs, routing, live updates and notifications.
 //
-// Layout (desktop): top bar = brand · sections (home + one per module) · bell and account; a dark dock on the start
+// Layout (desktop): top bar = brand، sections (home + one per module)، bell and account; a dark dock on the start
 // edge = search, activity, settings, theme; under the page title, the current section's pages as tabs.
 // Phones: sections move to a bottom bar (with the section's main action in the middle), the dock to the account menu.
 //
@@ -306,7 +306,7 @@ function openMenu(anchor) {
     { act: "logout", ico: "log-out", label: "خروج" },
   ];
   popover(anchor, String(html`<div class="menu">
-    <div class="menu-head">${avatar(me.user.name, "sm")}<div style="min-width:0"><b class="ellipsis">${me.user.name}</b><span>${isOwner() ? "مدیر کل" : "کاربر"} · @${me.user.username}</span></div></div>
+    <div class="menu-head">${avatar(me.user.name, "sm")}<div style="min-width:0"><b class="ellipsis">${me.user.name}</b><span>${isOwner() ? "مدیر کل" : "کاربر"}، @${me.user.username}</span></div></div>
     ${items.map((it) => it.sep ? html`<div class="sep"></div>` : it.href
       ? html`<a href="${it.href}" data-close>${icon(it.ico)}${it.label}</a>`
       : html`<button type="button" data-act="${it.act}">${icon(it.ico)}${it.label}</button>`)}

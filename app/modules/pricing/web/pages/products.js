@@ -61,7 +61,7 @@ function table(items, total) {
   }
   // thumbnails are decided for the whole list, not per row: either every row keeps the slot or none does
   const thumbs = items.some((r) => r.image);
-  const pending = (r) => (r.n_pending ? html` · <span class="badge warn">${n(r.n_pending)} منتظر تأیید</span>` : "");
+  const pending = (r) => (r.n_pending ? html`، <span class="badge warn">${n(r.n_pending)} منتظر تأیید</span>` : "");
   return html`<table class="t desk-only"><thead><tr>
       <th>محصول</th><th class="n">قیمت شما</th><th class="n">ارزان‌ترین رقیب</th><th class="n">میانه بازار</th>
       <th title="هر نقطه یک رقیب، لوزی قیمت شما؛ راست‌تر یعنی ارزان‌تر">بازه قیمت بازار</th><th>جایگاه نسبت به ارزان‌ترین</th></tr></thead><tbody>
@@ -70,14 +70,14 @@ function table(items, total) {
         <div class="meta">${r.brand || ""}${pending(r)}</div></div></div></td>
       <td class="n"><b>${n(r.my_price)}</b>${!r.in_stock ? html`<div class="small muted">ناموجود</div>` : ""}</td>
       <td class="n">${r.min ? html`${n(r.min)}<div class="small muted">${siteName(r.cheapest_site)}</div>` : html`<span class="muted">—</span>`}</td>
-      <td class="n">${r.median ? html`${n(r.median)}<div class="small muted">${n(r.n_sites)} سایت · ${n(r.n_listings)} فروشنده</div>` : html`<span class="muted">—</span>`}</td>
+      <td class="n">${r.median ? html`${n(r.median)}<div class="small muted">${n(r.n_sites)} سایت، ${n(r.n_listings)} فروشنده</div>` : html`<span class="muted">—</span>`}</td>
       <td>${ladder(r)}</td>
       <td>${posGap(r.position, r.gap_min_pct)}</td></tr>`)}
     </tbody></table>
     <div class="p-mlist phone-only">${items.map((r) => html`<div class="list-item clickable" data-pid="${r.id}">
       ${thumbs ? img(r.image) : ""}
       <div class="grow"><div class="title">${r.name}</div>
-        <div class="sub">شما <b class="num">${n(r.my_price)}</b>${r.min ? html` · ارزان‌ترین <span class="num">${n(r.min)}</span> در ${siteName(r.cheapest_site)}` : ""}${!r.in_stock ? " · ناموجود" : ""}${pending(r)}</div></div>
+        <div class="sub">شما <b class="num">${n(r.my_price)}</b>${r.min ? html`، ارزان‌ترین <span class="num">${n(r.min)}</span> در ${siteName(r.cheapest_site)}` : ""}${!r.in_stock ? "، ناموجود" : ""}${pending(r)}</div></div>
       ${posGap(r.position, r.gap_min_pct)}</div>`)}</div>
-    <p class="small muted mt8">${n(total)} محصول · قیمت‌ها به تومان</p>`;
+    <p class="small muted mt8">${n(total)} محصول، قیمت‌ها به تومان</p>`;
 }

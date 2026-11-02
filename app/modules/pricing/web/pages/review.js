@@ -8,7 +8,7 @@ export async function render(view, params, { setTitle }) {
     const data = await api("/api/pricing/review?limit=40");
     setReviewCount(data.total);
     view.innerHTML = String(html`<div class="stack pricing">
-      <div class="row small muted"><span>${n(data.total)} مورد</span>${canEdit() ? html`<span>· کلید <span class="kbd">A</span> تأیید، <span class="kbd">R</span> رد برای کارت اول</span>` : ""}</div>
+      <div class="row small muted"><span>${n(data.total)} مورد</span>${canEdit() ? html`<span>، کلید <span class="kbd">A</span> تأیید، <span class="kbd">R</span> رد برای کارت اول</span>` : ""}</div>
       <div class="stack" id="rvList">${data.items.length ? data.items.map(card) : html`<section class="card">${emptyState("check-check", "همه تطبیق‌ها بررسی شده‌اند 🎉")}</section>`}</div>
     </div>`);
   };
@@ -50,7 +50,7 @@ function card(o) {
       <div class="rv-side mine">${img(o.product_image)}<div style="min-width:0"><div class="rv-label">محصول شما</div>
         <div class="rv-title">${o.product_name}</div><div class="rv-price num">${n(o.my_price)} تومان</div></div></div>
       <div class="rv-vs">در برابر</div>
-      <div class="rv-side">${img(o.image)}<div style="min-width:0"><div class="rv-label">${siteName(o.site)}${o.seller ? ` · ${o.seller}` : ""}</div>
+      <div class="rv-side">${img(o.image)}<div style="min-width:0"><div class="rv-label">${siteName(o.site)}${o.seller ? `، ${o.seller}` : ""}</div>
         <div class="rv-title"><a href="${safeUrl(o.url)}" target="_blank" rel="noopener">${o.title} ↗</a></div>
         <div class="rv-price num">${n(o.price)} تومان ${diff != null ? html`<span class="small ${diff < 0 ? "ok-ink" : "bad-ink"}">(${pc(diff)})</span>` : ""}</div></div></div>
     </div>

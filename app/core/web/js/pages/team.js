@@ -18,7 +18,7 @@ export async function render(view, params, { setTitle }) {
             ${u.is_admin ? html`<span class="badge primary">${icon("shield")}مدیر کل</span>` : ""}
             ${u.active ? "" : html`<span class="badge">غیرفعال</span>`}</div>
             <div class="sub">${u.is_admin ? "همه بخش‌ها" : Object.keys(u.access).length
-              ? Object.entries(u.access).map(([m, r]) => `${modules.find((x) => x.id === m)?.name || m}: ${roleLabel(m, r)}`).join(" · ")
+              ? Object.entries(u.access).map(([m, r]) => `${modules.find((x) => x.id === m)?.name || m}: ${roleLabel(m, r)}`).join("، ")
               : "بدون دسترسی"}</div>
             <div class="tiny muted">${u.last_seen_at ? `آخرین فعالیت ${ago(u.last_seen_at)}` : u.last_login_at ? `آخرین ورود ${ago(u.last_login_at)}` : "هنوز وارد نشده"}</div>
           </div>${icon("chevron-left", "sm")}</div>`)}</div>` : emptyState("users", "کسی نیست")}

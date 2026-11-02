@@ -153,13 +153,13 @@ function tile(k, label, value, foot, ico) {
 function riskRow(r) {
   return html`<div class="list-item clickable" data-pid="${r.id}">${img(r.image)}
     <div class="grow"><div class="title ellipsis">${r.name}</div>
-      <div class="sub ellipsis">شما ${n(r.my_price)} · ارزان‌ترین: ${n(r.min)} در ${siteName(r.cheapest_site)}</div></div>
+      <div class="sub ellipsis">شما ${n(r.my_price)}، ارزان‌ترین: ${n(r.min)} در ${siteName(r.cheapest_site)}</div></div>
     ${gapBadge(r.gap_min_pct)}</div>`;
 }
 function raiseRow(r) {
   return html`<div class="list-item clickable" data-pid="${r.id}">${img(r.image)}
     <div class="grow"><div class="title ellipsis">${r.name}</div>
-      <div class="sub ellipsis">شما ${n(r.my_price)} · رقیب بعدی ${n(r.min)} (${siteName(r.cheapest_site)}) · پیشنهاد: ${n(r.suggested_price)}</div></div>
+      <div class="sub ellipsis">شما ${n(r.my_price)}، رقیب بعدی ${n(r.min)} (${siteName(r.cheapest_site)})، پیشنهاد: ${n(r.suggested_price)}</div></div>
     <span class="badge ok num">+${short(r.impact)}</span></div>`;
 }
 function changeRow(c) {
@@ -168,7 +168,7 @@ function changeRow(c) {
       : html`<span class="badge ${c.pct < 0 ? "bad" : "ok"} num" title="${c.pct < 0 ? "رقیب ارزان کرد" : "رقیب گران کرد"}">${c.pct < 0 ? "▼" : "▲"} ${pc(c.pct)}</span>`;
   return html`<div class="list-item clickable" data-pid="${c.product_id}">
     <div class="grow"><div class="title ellipsis">${c.product_name}</div>
-      <div class="sub ellipsis">${siteName(c.site)}${c.seller ? ` · ${c.seller}` : ""} · ${n(c.old_price)} ← ${n(c.new_price)} · ${ago(c.ts)}</div></div>
+      <div class="sub ellipsis">${siteName(c.site)}${c.seller ? `، ${c.seller}` : ""}، ${n(c.old_price)} ← ${n(c.new_price)}، ${ago(c.ts)}</div></div>
     ${what}</div>`;
 }
 function h2hTable(rows) {
@@ -210,7 +210,7 @@ function drawIndexCharts(hist, charts) {
       { label: "شاخص قیمت شما", data: hist.map((h) => h.index), borderColor: c.accent, backgroundColor: c.accent, borderWidth: 2, pointRadius: hist.length > 20 ? 0 : 4, pointBorderColor: c.surface, pointBorderWidth: 2, tension: 0.25, cubicInterpolationMode: "monotone" },
       { label: "میانه بازار (۱۰۰)", data: hist.map(() => 100), borderColor: c.market2, borderWidth: 1, pointRadius: 0 },
     ] },
-    options: lineOptions(c, (v) => nf1.format(v), (ctx) => ctx.datasetIndex === 0 ? `شاخص: ${nf1.format(ctx.parsed.y)} · ارزان‌ترین در ${n(hist[ctx.dataIndex].cheapest_share)}٪ محصولات` : null),
+    options: lineOptions(c, (v) => nf1.format(v), (ctx) => ctx.datasetIndex === 0 ? `شاخص: ${nf1.format(ctx.parsed.y)}، ارزان‌ترین در ${n(hist[ctx.dataIndex].cheapest_share)}٪ محصولات` : null),
   }));
 }
 export { $$ };
