@@ -40,7 +40,7 @@ never restyle shared ones).
 
 ## Radius
 
-Follows size: `--r-xs 8` · `--r-sm 10` (controls) · `--r-md 12` · `--r-lg 16` · `--r-xl 18` (cards, tiles).
+Follows size: `--r-2xs 6` · `--r-xs 8` · `--r-sm 10` (controls) · `--r-md 12` · `--r-lg 16` · `--r-xl 18` (cards, tiles) · `--r-2xl 24` (sheets, palettes) · `--r-full` (pills, avatars).
 Only tab tracks, badges/chips and avatars are fully round (99px). No other literal radii.
 
 ## Typography
@@ -49,24 +49,29 @@ Body: 14.5px Vazirmatn, deliberate for Vazirmatn's small x-height. Persian needs
 Hierarchy from weight + colour first, size second. No `letter-spacing` and no `text-transform` on Persian text
 (it breaks the joined letters); tracking only on Latin-only strings such as codes.
 
-Type scale (each size paired with a line-height token; being introduced in Phase 3 batch 2):
+Type scale (tokens in `:root`, about 1.2 from the 14.5px body). Each role pairs a size with a line-height token:
+`--lh-tight 1.2` (display), `--lh-heading 1.35`, `--lh-ui 1.55` (dense UI), `--lh-body 1.75` (body, never below 1.7).
 
-| Token | Size | Line-height | Use |
-|---|---|---|---|
-| `--fs-caption` / `--lh-caption` | 12px | 1.6 | badges, table heads, meta |
-| `--fs-small` / `--lh-small` | 13px | 1.7 | secondary text, hints, table cells (dense) |
-| `--fs-body` / `--lh-body` | 14.5px | 1.75 | body, inputs, buttons |
-| `--fs-title` / `--lh-title` | 16px | 1.5 | card titles, sheet titles |
-| `--fs-h1` / `--lh-h1` | 24px | 1.35 | page title |
-| `--fs-figure` / `--lh-figure` | 28px | 1.3 | KPI value (weight 500, tabular) |
-| `--fs-hero` / `--lh-hero` | 40px | 1.2 | single hero figure (pricing overview) |
+| Token | Size | Use |
+|---|---|---|
+| `--fs-micro` | 11px | counts inside pills, chart axes, kbd |
+| `--fs-caption` | 12px | badges, table heads, meta |
+| `--fs-small` | 13px | secondary text, labels, buttons-sm, dense table cells |
+| `--fs-body` | 14.5px | body, inputs, buttons |
+| `--fs-title` | 16px | card titles, sheet titles |
+| `--fs-lead` | 19px | totals, detail values |
+| `--fs-figure-sm` | 22px | figures in a KPI strip, phone page title |
+| `--fs-h1` | 24px | page title (600) |
+| `--fs-figure` | 28px | KPI value (500, tabular) |
+| `--fs-figure-lg` | 34px | the screen's main figure (600, tabular) |
+| `--fs-display` | 48px | single hero figure (pricing index) |
 
 Inputs are 16px on phones (iOS zoom). Numeric values (prices, counts, table number columns, timers) use
 `font-variant-numeric: tabular-nums`; numeric table columns are end-aligned.
 
 ## Spacing
 
-4px base. Scale (being introduced in Phase 3 batch 2): `--sp-1 4` · `--sp-2 8` · `--sp-3 12` · `--sp-4 16` ·
+4px base. Scale: `--sp-0-5 2` · `--sp-1 4` · `--sp-1-5 6` · `--sp-2 8` · `--sp-3 12` · `--sp-4 16` ·
 `--sp-5 20` · `--sp-6 24` · `--sp-8 32` · `--sp-10 40` · `--sp-14 56`. `2px` and `6px` allowed only inside small
 controls (badge/chip internals). Gap between groups ≥ 2× the gap inside a group.
 
@@ -119,7 +124,8 @@ repeated actions. Hover effects live behind `@media (hover: hover) and (pointer:
 
 ## Numbers
 
-- Digits: Persian everywhere, via `num()`/`compact()` (Intl `fa-IR`). Codes (SKU `PRD-010`, sale `S-12`) stay
+- Digits: Persian everywhere, via `num()`/`compact()` (Intl `fa-IR`). `fa()` adds thousands separators to whole numbers of
+  five digits or more (years and codes keep their digits). Codes (SKU `PRD-010`, sale `S-12`) stay
   Latin, isolated with `.ltr`.
 - Money: full amounts in tables without unit (column header carries «تومان»); summaries use `compact()` +
   «تومان». See the Phase 1 audit notes for the inconsistencies being fixed.

@@ -104,7 +104,7 @@ export async function render(view, params, { setTitle, query }) {
       <details class="adv"><summary>${icon("sliders-horizontal", "sm")} پیشرفته</summary>
         <div class="stack s12">
           <div class="field"><label>Seed (برای تکرارپذیری)</label><input class="input sm ltr" id="seed" inputmode="numeric" placeholder="خالی = تصادفی"></div>
-          <div class="field"><label>گزینه‌های ارائه‌دهنده (JSON)</label><textarea class="textarea ltr" id="provider" rows="3" placeholder='{"options": {}}' style="min-height:70px;font-family:ui-monospace,monospace;font-size:12px"></textarea>
+          <div class="field"><label>گزینه‌های ارائه‌دهنده (JSON)</label><textarea class="textarea ltr" id="provider" rows="3" placeholder='{"options": {}}' style="min-height:70px;font-family:ui-monospace,monospace;font-size:var(--fs-caption)"></textarea>
             <div class="hint" id="passHint"></div></div>
         </div></details>
       <div class="gen-foot">
@@ -430,7 +430,7 @@ export async function render(view, params, { setTitle, query }) {
         <h2>هنوز چیزی نساخته‌اید</h2>
         <p class="small muted">یکی از این سه را شروع کنید یا متن خودتان را بنویسید؛ هر ساخته در کتابخانه مشترک تیم می‌ماند.</p>
         ${canCreate() && M.config.configured ? html`<div class="starters">${IDEAS.map((i) => html`<button class="starter" data-starter="${i.prompt}">
-          <span class="s-ico">${icon(i.ico)}</span><b>${i.label}</b><span class="ltr" style="text-align:left;font-size:11.5px">${i.prompt.slice(0, 90)}…</span></button>`)}</div>` : ""}
+          <span class="s-ico">${icon(i.ico)}</span><b>${i.label}</b><span class="ltr" style="text-align:left;font-size:var(--fs-caption)">${i.prompt.slice(0, 90)}…</span></button>`)}</div>` : ""}
       </div></section>`);
       return;
     }

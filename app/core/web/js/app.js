@@ -97,7 +97,7 @@ function showLogin() {
     <div class="login-wrap">
       <form class="card login-card page-enter" id="login">
         <img class="login-logo" src="/static/img/logo.png" alt="Aiko">
-        <h1 style="text-align:center;font-size:22px">${document.title || "پنل آیکو"}</h1>
+        <h1 style="text-align:center;font-size:var(--fs-figure-sm)">${document.title || "پنل آیکو"}</h1>
         <p class="muted small" style="text-align:center;margin-bottom:22px">فروشگاه و حسابداری، قیمت رقبا، استودیو محتوا</p>
         <div class="stack s12">
           <div class="field"><label for="u">نام کاربری</label>

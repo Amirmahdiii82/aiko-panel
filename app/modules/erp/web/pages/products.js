@@ -143,10 +143,10 @@ export function openAdjust(p, done) {
   const s = sheet({
     title: `اصلاح موجودی «${p.name}»`,
     body: html`<div class="stack s12">
-      <div class="inset row between"><span>موجودی فعلی</span><b class="num" style="font-size:20px">${fa(p.stock)}</b></div>
+      <div class="inset row between"><span>موجودی فعلی</span><b class="num" style="font-size:var(--fs-figure-sm)">${fa(p.stock)}</b></div>
       <div class="field"><label>موجودی درست (شمارش واقعی)</label>
         <div class="row nowrap"><div class="stepper"><button type="button" data-d="1">${icon("plus", "sm")}</button>
-          <input name="set_to" value="${fa(p.stock)}" inputmode="numeric" style="width:64px;font-size:18px">
+          <input name="set_to" value="${fa(p.stock)}" inputmode="numeric" style="width:64px;font-size:var(--fs-lead)">
           <button type="button" data-d="-1">${icon("minus", "sm")}</button></div>
           <button class="btn sm danger" type="button" data-zero>${icon("ban", "sm")} صفر (ناموجود)</button></div></div>
       <div class="field"><label>دلیل</label>
@@ -233,7 +233,7 @@ export function openProduct(id, changed) {
         <div class="small muted">${[p.sku, p.brand, p.category].filter(Boolean).join("، ")}</div>
         <div class="row mt8">${stockBadge(p)} ${admin ? wooBadge(p) : ""} ${p.active ? "" : html`<span class="badge">بایگانی</span>`}</div></div></div>
       <div class="grid g3" style="gap:12px">
-        <div class="inset"><div class="small muted">موجودی</div><div class="bold num" style="font-size:22px">${fa(p.stock)}</div></div>
+        <div class="inset"><div class="small muted">موجودی</div><div class="bold num" style="font-size:var(--fs-figure-sm)">${fa(p.stock)}</div></div>
         <div class="inset"><div class="small muted">قیمت فروش</div><div class="bold num">${num(p.price)}</div></div>
         ${admin ? html`<div class="inset"><div class="small muted">قیمت خرید (میانگین)</div><div class="bold num">${num(p.avg_cost)}</div>
           <div class="tiny ${margin < 0.15 ? "warn-ink" : "muted"}">سود ${pct(margin)}</div></div>` : ""}

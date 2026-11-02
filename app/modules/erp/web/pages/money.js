@@ -229,7 +229,7 @@ async function openStatement(acc, done) {
   s.root.querySelector("#edit").onclick = () => { s.close(); openAccount(acc, done); };
   const rows = await api(`/api/erp/accounts/${acc.id}/flows`);
   s.root.querySelector(".sheet-body").innerHTML = String(html`<div class="stack">
-    <div class="inset row between"><span>مانده</span><b class="num ${acc.balance < 0 ? "bad-ink" : ""}" style="font-size:20px">${toman(acc.balance)}</b></div>
+    <div class="inset row between"><span>مانده</span><b class="num ${acc.balance < 0 ? "bad-ink" : ""}" style="font-size:var(--fs-figure-sm)">${toman(acc.balance)}</b></div>
     <div class="row small"><span class="badge ok">ورودی ${compact(acc.money_in)}</span><span class="badge bad">خروجی ${compact(acc.money_out)}</span></div>
     ${rows.length ? html`<div class="table-wrap"><table class="t">
       <thead><tr><th>تاریخ</th><th>شرح</th><th class="n">مبلغ</th><th class="n">مانده</th></tr></thead>

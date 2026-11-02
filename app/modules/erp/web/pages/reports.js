@@ -66,7 +66,7 @@ function body(r) {
           <div class="list-item"><span class="grow">بهای تمام‌شده کالای فروخته‌شده</span><b class="num bad-ink">−${num(t.cogs)}</b></div>
           <div class="list-item"><span class="grow bold">سود ناخالص</span><b class="num">${num(t.gross)}</b></div>
           ${r.expense_categories.map((c) => html`<div class="list-item small"><span class="grow muted">${c.category}</span><span class="num bad-ink">−${num(c.amount)}</span></div>`)}
-          <div class="list-item"><span class="grow bold">سود خالص</span><b class="num ${t.net < 0 ? "bad-ink" : "ok-ink"}" style="font-size:18px">${num(t.net)}</b></div>
+          <div class="list-item"><span class="grow bold">سود خالص</span><b class="num ${t.net < 0 ? "bad-ink" : "ok-ink"}" style="font-size:var(--fs-lead)">${num(t.net)}</b></div>
         </div>
         <p class="tiny muted mt12">پول خرید کالا هزینه حساب نمی‌شود؛ وقتی کالا فروخته شد به‌عنوان «بهای تمام‌شده» کم می‌شود. خرید کالا در این بازه: ${toman(r.stock_spend)}${t.unpaid ? `، فروش پرداخت‌نشده: ${toman(t.unpaid)}` : ""}</p>
       </section>

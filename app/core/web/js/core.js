@@ -90,7 +90,10 @@ export function icon(name, cls = "") {
 // ---------------------------------------------------------------- formatting
 const nf = new Intl.NumberFormat("fa-IR");
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
-export const fa = (v) => String(v ?? "").replace(/\d/g, (d) => FA_DIGITS[d]);
+// Digits to Persian. A whole number of five digits or more also gets thousands separators, so a count like 12500 reads
+// «۱۲٬۵۰۰» everywhere; years (۱۴۰۵), codes and strings keep their exact digits.
+export const fa = (v) => (typeof v === "number" && Number.isInteger(v) && Math.abs(v) >= 10000 ? nf.format(v)
+  : String(v ?? "").replace(/\d/g, (d) => FA_DIGITS[d]));
 export const num = (n) => nf.format(Math.round(Number(n) || 0));
 export const money = (n) => num(n);
 export const toman = (n) => `${num(n)} تومان`;
