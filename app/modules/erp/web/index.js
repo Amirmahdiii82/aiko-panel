@@ -10,10 +10,11 @@ const ADMIN_NAV = [
   { href: "sales", label: "فروش‌ها", ico: "receipt" },
   { href: "purchases", label: "خریدها", ico: "truck" },
   { href: "expenses", label: "هزینه‌ها", ico: "banknote" },
-  { href: "money", label: "حساب‌ها و شرکا", ico: "wallet" },
-  { href: "reports", label: "گزارش‌ها", ico: "chart-column" },
-  { href: "statements", label: "صورت‌های مالی", ico: "scale" },
-  { href: "site", label: "همگام‌سازی سایت", ico: "globe" },
+  // the books: read and settled now and then, not every day
+  { href: "money", label: "حساب‌ها و شرکا", ico: "wallet", group: "حسابداری" },
+  { href: "reports", label: "گزارش‌ها", ico: "chart-column", group: "حسابداری" },
+  { href: "statements", label: "صورت‌های مالی", ico: "scale", group: "حسابداری" },
+  { href: "site", label: "همگام‌سازی", ico: "globe", group: "سایت" },
 ];
 const SELLER_NAV = [
   { href: "", label: "خانه", ico: "house" },

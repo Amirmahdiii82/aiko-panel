@@ -351,7 +351,9 @@ function showModule(mod) {
   const pages = mod ? pagesOf(mod) : [];
   const sub = $("#subnav");
   sub.hidden = pages.length < 2;
-  sub.innerHTML = String(html`${pages.map((it) => html`<a href="${hrefFor(mod, it.href)}" data-nav="${it.href}">${icon(it.ico)}<span>${it.label}</span></a>`)}`);
+  // pages may carry a group: a new group starts with a quiet divider and its name (e.g. daily work, then the books)
+  sub.innerHTML = String(html`${pages.map((it, i) => html`${it.group && it.group !== pages[i - 1]?.group
+    ? html`<span class="sn-group" role="separator" aria-label="${it.group}">${it.group}</span>` : ""}<a href="${hrefFor(mod, it.href)}" data-nav="${it.href}">${icon(it.ico)}<span>${it.label}</span></a>`)}`);
 
   const dest = [{ id: "", name: "خانه", short: "خانه", icon: "house" }, ...ordered().map((m) => m.info)].slice(0, 4);
   const fab = fabFor(mod);
@@ -407,7 +409,7 @@ async function route() {
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
   document.querySelectorAll("#dock [data-page]").forEach((a) => a.classList.toggle("on", a.dataset.page === lit));
   document.querySelectorAll("#subnav [data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === page));
-  $("#subnav .on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  $("#subnav .on")?.scrollIntoView({ block: "nearest", inline: "center" });
 
   // same page, different sub-path (e.g. opening a detail): let the page handle it without re-rendering
   if (current && current.mod === mod && current.page === page && current.onParams && qs === current.qs) {

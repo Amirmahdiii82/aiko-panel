@@ -80,6 +80,9 @@ controls (badge/chip internals). Gap between groups ≥ 2× the gap inside a gro
 - Logical properties only (`margin-inline-start`, `inset-inline-end`, `text-align: start`). Physical left/right
   only for physical geometry (safe-area insets), with a `[dir]` override for any `translateX`.
 - Horizontally scrolling rows (chips, page tabs) fade at the overflow edge and scroll the active item into view.
+- Page tabs can be grouped (`group` on a nav item): a new group starts with a hairline and its name. The store reads
+  daily work first (dashboard, sell, stock, sales, purchases, expenses), then «حسابداری» (accounts, reports,
+  statements), then «سایت» (sync). On phones the active tab scrolls to the centre of the row.
 - One primary (pink) action per view. When the page body has its own `.btn.primary`, the module's header action
   steps back to the soft look automatically (`.main:has(#view .btn.primary) #top-action .btn.primary` in ui.css).
 

@@ -260,6 +260,12 @@ svg.i.lg { width: 26px; height: 26px; }
 .subnav a svg { width: 15px; height: 15px; }
 @media (hover: hover) and (pointer: fine) { .subnav a:not(.on):hover { color: var(--ink); } }
 .subnav a.on { background: var(--pill); color: var(--ink); }
+/* a group of pages starts with a hairline and its name: daily work first, then the books */
+.subnav .sn-group {
+  display: inline-flex; align-items: center; gap: var(--sp-2); flex: none; padding-inline: var(--sp-3) var(--sp-1);
+  color: var(--muted); font-size: var(--fs-caption); white-space: nowrap; opacity: .8;
+}
+.subnav .sn-group::before { content: ""; width: 1px; height: 18px; background: var(--line-2); }
 .subnav .count { font-size: var(--fs-micro); font-weight: 600; min-width: 18px; height: 18px; padding: 0 var(--sp-1); border-radius: var(--r-full); display: grid; place-items: center;
   background: var(--accent); color: var(--on-accent); }
 /* the sliding selection pane of a tab group (pill.js): one pane per group, clipped to the selected item */
@@ -970,3 +976,8 @@ details.card.fold[open] > summary { margin-bottom: var(--sp-3); }
 /* light ↔ dark: the new theme spreads in a circle from the button that was pressed (app.js sets the centre) */
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 ::view-transition-new(root) { z-index: 1; }
+
+/* phone tab rows scroll sideways: fade the far (end) edge so a cut-off tab reads as "more this way", not as a bug */
+@media (max-width: 900px) {
+  .subnav { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - var(--sp-8)), transparent); mask-image: linear-gradient(to left, #000 calc(100% - var(--sp-8)), transparent); }
+}
