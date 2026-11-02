@@ -1,6 +1,6 @@
 // Shared UI kit for every module: money inputs (with amount in words), Jalali date field, chips, uploads,
 // badges, KPI tiles, feed items. Module-specific widgets live in the module (e.g. /m/erp/erp.js).
-import { ago, compact, delegate, esc, fa, html, icon, jdate, moduleName, num, numWords, parseNum, popover, raw, state, toast, upload } from "./core.js";
+import { ago, compact, delegate, esc, fa, html, icon, jdate, moduleName, num, numWords, parseNum, popover, raw, state, storage, toast, upload } from "./core.js";
 import { MONTHS, WEEKDAYS, addDays, isoToJ, jToIso, monthLength, weekdayIndex } from "./jalali.js";
 
 // ---------------------------------------------------------------- money input
@@ -180,8 +180,17 @@ export function formData(root) {
 }
 
 // ---------------------------------------------------------------- display bits
+// Product pictures are decided for the whole store, not per row: when no product has a picture, lists drop the slot
+// instead of repeating an empty box on every row; once any product has one, every row keeps the slot (aligned).
+let storeImages = storage("store-images");
+export function setStoreImages(products) {
+  storeImages = products.some((p) => p.image);
+  storage("store-images", storeImages);
+}
+export const storeHasImages = () => storeImages !== false;
 export function thumb(p, size = "") {
   const img = p && p.image;
+  if (!img && !storeHasImages()) return "";
   return html`<span class="thumb ${size}">${img ? html`<img src="${img}" alt="" loading="lazy" referrerpolicy="no-referrer">` : icon("package", "sm")}</span>`;
 }
 export function emptyState(ico, title, text = "", action = "") {

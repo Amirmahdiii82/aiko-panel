@@ -1,6 +1,6 @@
 // Products & stock: list, filters, quick "out of stock", adjustments, product drawer with history and site link.
 import { $, api, compact, confirmBox, delegate, esc, fa, html, icon, jdate, num, on, parseNum, pct, sheet, timeOf, toast } from "/static/js/kit.js";
-import { bindMoney, emptyState, formData, moneyField, selectOptions, thumb } from "/static/js/kit.js";
+import { bindMoney, emptyState, formData, moneyField, selectOptions, setStoreImages, thumb } from "/static/js/kit.js";
 import { erp, isAdmin, refreshMe, stockBadge, WOO_STATE, wooBadge } from "../erp.js";
 
 const FILTERS = [
@@ -23,6 +23,7 @@ export async function render(view, params, { setTitle, query }) {
   let products = [];
   const load = async () => {
     products = await api(`/api/erp/products${filter === "archived" ? "?include_inactive=true" : ""}`, { quiet: true });
+    setStoreImages(products);
   };
   await load();
 

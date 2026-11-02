@@ -99,6 +99,9 @@ controls (badge/chip internals). Gap between groups ≥ 2× the gap inside a gro
   `soft`, `ghost`, `danger` (destructive confirmations only, never repeated per row). `sm` 34px, `xs`.
   Press: `scale(.97)`.
 - **Badge** `.badge` — 22px h, round, caption size/600. Neutral by default; status variants only for status.
+- **KPI tiles, unit rule** — the unit after a figure is always the unit («تومان», «محصول», «فروش»); context such as
+  «به قیمت خرید» or «۱۰۰ = میانه بازار» goes on the foot line. A page with several figures uses one `.kpi-strip`
+  with the hero first, never a grid of separate cards.
 - **KPI tile** `.kpi` — always label / value + unit / foot, same surface + hairline in a strip; value 28px/500
   tabular; only the screen's main figure uses `--accent-ink` (`.kpi.hero`).
 - **Table** `table.t` — head caption/500/muted with a bottom hairline; cells 11px 12px; row hover only on

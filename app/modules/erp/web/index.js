@@ -71,9 +71,9 @@ export default {
       headline: d.today.orders ? `امروز ${fa(d.today.orders)} فروش به مبلغ ${compact(d.today.revenue)} تومان` : "امروز هنوز فروشی ثبت نشده",
       stats: [
         { label: `فروش ${d.period_label}`, value: compact(d.period.revenue), unit: "تومان", foot: `${fa(d.period.orders)} سفارش`, href: "#/erp" },
-        { label: "فروش امروز", value: compact(d.today.revenue), unit: d.today.revenue ? "تومان" : "", foot: `${fa(d.today.orders)} سفارش`, href: "#/erp/sales" },
-        { label: "سود خالص ۳۰ روز", value: compact(d.period.net), unit: "تومان", tone: d.period.net < 0 ? "bad" : "", href: "#/erp/reports" },
-        { label: "ارزش انبار", value: compact(d.stock_value), unit: "به قیمت خرید", href: "#/erp/products" },
+        { label: "فروش امروز", value: compact(d.today.revenue), unit: "تومان", foot: `${fa(d.today.orders)} سفارش`, href: "#/erp/sales" },
+        { label: "سود خالص ۳۰ روز", value: compact(d.period.net), unit: "تومان", foot: "بعد از هزینه‌ها", tone: d.period.net < 0 ? "bad" : "", href: "#/erp/reports" },
+        { label: "ارزش انبار", value: compact(d.stock_value), unit: "تومان", foot: "به قیمت خرید", href: "#/erp/products" },
       ],
       alerts,
     };

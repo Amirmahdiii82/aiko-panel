@@ -39,7 +39,7 @@ export default {
     if (d.raise_count) alerts.push({ tone: "ok", ico: "trending-down", text: `${fa(d.raise_count)} فرصت افزایش قیمت`, href: "#/pricing/products" });
     return {
       stats: [
-        { label: "شاخص قیمت", value: d.median_index == null ? "—" : nf1.format(d.median_index), unit: "۱۰۰ = میانه بازار", href: "#/pricing" },
+        { label: "شاخص قیمت", value: d.median_index == null ? "—" : nf1.format(d.median_index), foot: "۱۰۰ = میانه بازار", href: "#/pricing" },
         { label: "خیلی گران‌تر", value: fa(d.far_above), unit: "محصول", href: "#/pricing/products" },
         { label: "فرصت افزایش", value: fa(d.raise_count), unit: "محصول", href: "#/pricing/products" },
         { label: "آخرین بروزرسانی", value: ago(d.last_crawl?.finished_at) || "—", unit: "", href: "#/pricing/sites" },

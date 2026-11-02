@@ -23,7 +23,7 @@ export async function render(view, params, { setTitle, query }) {
         <label class="check small"><span class="switch"><input type="checkbox" id="voids"><span></span></span>باطل‌شده‌ها هم</label>
       </div>
     </div>
-    <div class="grid g4" id="summary"></div>
+    <div class="kpi-strip" id="summary"></div>
     <section class="card" id="list"></section>
   </div>`);
 
@@ -47,9 +47,9 @@ export async function render(view, params, { setTitle, query }) {
     const unpaid = done.filter((r) => !r.paid).reduce((s, r) => s + r.total, 0);
     const items = done.reduce((s, r) => s + (r.items_count || 0), 0);
     $("#summary", view).innerHTML = String(html`
-      <div class="kpi"><div class="k-label">تعداد فروش</div><div class="k-value">${fa(done.length)}</div><div class="k-foot">${fa(items)} عدد کالا</div></div>
       <div class="kpi hero" title="${toman(revenue)}"><div class="k-label">مبلغ فروش</div><div class="k-value">${compact(revenue)}<span class="k-unit">تومان</span></div>
         <div class="k-foot">میانگین هر سفارش ${compact(done.length ? revenue / done.length : 0)}</div></div>
+      <div class="kpi"><div class="k-label">تعداد فروش</div><div class="k-value">${fa(done.length)}<span class="k-unit">فروش</span></div><div class="k-foot">${fa(items)} عدد کالا</div></div>
       ${admin ? html`<div class="kpi ${profit < 0 ? "bad" : ""}" title="${toman(profit)}"><div class="k-label">سود ناخالص</div><div class="k-value">${compact(profit)}<span class="k-unit">تومان</span></div>
         <div class="k-foot">قبل از هزینه‌های جاری</div></div>` : ""}
       <div class="kpi ${unpaid ? "bad" : ""}"><div class="k-label">پرداخت‌نشده</div><div class="k-value">${compact(unpaid)}<span class="k-unit">تومان</span></div>

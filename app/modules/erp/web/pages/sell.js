@@ -6,7 +6,7 @@
 // Shelves make the list useful: best sellers, what is in stock, what needs restocking, categories, brands.
 // Search + Enter adds the top match (works with a barcode scanner typing the SKU).
 import { $, api, confirmBox, delegate, fa, html, icon, num, numWords, on, parseNum, sheet, storage, toast, toman } from "/static/js/kit.js";
-import { bindChoices, bindDates, bindMoney, bindUploads, choiceChips, dateField, emptyState, formData, moneyField, selectOptions, thumb, uploadField } from "/static/js/kit.js";
+import { bindChoices, bindDates, bindMoney, bindUploads, choiceChips, dateField, emptyState, formData, moneyField, selectOptions, setStoreImages, storeHasImages, thumb, uploadField } from "/static/js/kit.js";
 import { accountOptions, CHANNEL_ICON, erp, isAdmin, refreshMe, stockBadge } from "../erp.js";
 
 const norm = (s) => String(s || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/‌/g, " ").toLowerCase();
@@ -26,6 +26,7 @@ export async function render(view, params, { setTitle, query }) {
   const admin = isAdmin();
   let mode = admin && query?.get("mode") === "buy" ? "buy" : "sell";
   let products = await api("/api/erp/products");
+  setStoreImages(products);
   const carts = { sell: new Map(), buy: new Map() };      // key -> line; key is a product id or "new-N"
   let newKey = 1;
   let q = "", brand = "";
@@ -117,7 +118,7 @@ export async function render(view, params, { setTitle, query }) {
     const meta2 = [p.brand, p.sku].filter(Boolean).join("، ");
     return html`<button class="pcard ${out ? "out" : ""} ${inCart ? "on" : ""}" data-add="${p.id}" title="${p.name}">
       ${inCart ? html`<span class="pc-qty">${fa(inCart)}</span>` : ""}
-      <span class="pc-img">${p.image ? html`<img src="${p.image}" alt="" loading="lazy" referrerpolicy="no-referrer">` : icon("package")}</span>
+      ${p.image || storeHasImages() ? html`<span class="pc-img">${p.image ? html`<img src="${p.image}" alt="" loading="lazy" referrerpolicy="no-referrer">` : icon("package")}</span>` : ""}
       <span class="pc-body">
         <span class="pc-name">${p.name}</span>
         ${meta2 ? html`<span class="pc-meta">${meta2}</span>` : ""}
