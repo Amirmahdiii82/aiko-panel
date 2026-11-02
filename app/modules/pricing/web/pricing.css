@@ -79,7 +79,7 @@ button.kpi:active { transform: scale(.98); }
   .plot-dot:hover { transform: translate(50%, -50%) scale(1.35); z-index: 2; }
 }
 .plot-me { position: absolute; top: 0; bottom: 0; width: 3px; border-radius: var(--r-2xs); background: var(--accent); transform: translateX(50%); z-index: 1; }
-.plot-me-label { position: absolute; z-index: 2; top: -24px; transform: translateX(50%); font-size: var(--fs-micro); font-weight: 600; color: var(--accent-ink); background: var(--accent-soft); border-radius: var(--r-full); padding: 1px var(--sp-3); white-space: nowrap; box-shadow: var(--shadow-sm); }
+.plot-me-label { position: absolute; z-index: 2; top: -24px; transform: translateX(50%); font-size: var(--fs-micro); font-weight: 600; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border-radius: var(--r-full); padding: 1px var(--sp-3); white-space: nowrap; box-shadow: var(--shadow-sm); }
 .plot-floor { background: var(--pos-bad); }
 .plot-floor-label { background: var(--bad-soft); color: var(--bad); }
 .plot-axis { display: grid; grid-template-columns: 96px minmax(0, 1fr); }

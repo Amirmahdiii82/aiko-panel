@@ -13,6 +13,13 @@ never restyle shared ones).
 - **Feel:** quiet and exact, like a well-kept ledger. Calm surfaces, numbers that read at a glance, nothing
   decorative. Professional, not playful.
 
+## Signature: the ledger's double rule
+
+A bookkeeper closes a total with two thin lines under it. The panel draws the same double rule, in Aiko pink
+(`--ledger-rule`), under the one figure each screen is about: the hero KPI (`.kpi.hero .k-value`), the pricing index
+(`.p-hero-value`) and the cart / invoice total (`.totals .t-grand .num`). Only the figure is ruled, never its unit.
+Never use it on a second figure in the same view; it marks "this is the answer".
+
 ## Identity (do not change)
 
 - **Language/direction:** Persian, `lang="fa" dir="rtl"`, RTL only. Persian digits via `Intl.NumberFormat("fa-IR")`.

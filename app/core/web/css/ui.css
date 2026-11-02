@@ -73,6 +73,7 @@
 
   /* surfaces that are dark in both themes (media frames) and the switch knob */
   --media-bg: #0E0B12; --media-ink: #FFFFFF; --knob: #FFFFFF;
+  --ledger-rule: color-mix(in srgb, var(--accent) 55%, transparent);   /* the signature double rule under a main figure */
   --dock-w: 56px;
   --top-h: 72px;
   --content-max: 1400px;
@@ -331,6 +332,14 @@ svg.i.lg { width: 26px; height: 26px; }
 .kpi .k-icon svg { width: 16px; height: 16px; }
 .kpi.bad .k-value { color: var(--bad); }
 .kpi.hero .k-value { color: var(--accent-ink); }
+/* Signature: the ledger's double rule. A bookkeeper closes a total with two thin lines under it; the panel draws the same
+   rule, in Aiko pink, under the one figure each screen is about (the hero KPI, the price index, the cart total). Only
+   the figure is ruled: the unit beside it is an inline-block, which an ancestor's underline does not reach. */
+.kpi.hero .k-value, .p-hero-value, .totals .t-grand .num {
+  text-decoration-line: underline; text-decoration-style: double; text-decoration-color: var(--ledger-rule);
+  text-decoration-thickness: 1px; text-underline-offset: .28em; text-decoration-skip-ink: auto;
+}
+.kpi.hero .k-unit { display: inline-block; }
 /* figures are type, not icon chips */
 .kpi .k-icon { display: none !important; }
 /* A row of figures is one panel split by hairlines, not a row of equal tiles: the first (hero) cell is the screen's
