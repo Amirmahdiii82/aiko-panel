@@ -105,6 +105,13 @@ controls (badge/chip internals). Gap between groups ≥ 2× the gap inside a gro
 - **Empty state** `.empty` — icon, title (what this place is), one line (how it fills), one action when there is
   one. Filtered-empty names the filter and offers to clear it.
 
+## Sell page
+
+- Fastest path first: the «اخیر» shelf (the last 16 products sold from this device, newest first) is the default when it
+  has items; then all, best sellers, in stock, categories.
+- Camera barcode scanning appears only where the browser has `BarcodeDetector` (Chrome on Android); a USB/Bluetooth
+  scanner still works everywhere through search + Enter. The same code is ignored for 2.5s so one box is added once.
+
 ## Pricing module
 
 - Position (cheapest / close / above / far above / unique / no price) uses status colours plus a mark (✓ ≈ ▲ ▲▲ ★ –),

@@ -159,7 +159,7 @@ table.fs tr.total td { box-shadow: inset 0 1px 0 var(--line-2), inset 0 -4px 0 v
   .pos-mode { display: flex; width: 100%; }
   .pos-mode button { flex: 1; justify-content: center; }
   .pos-search { top: calc(56px + env(safe-area-inset-top)); }
-  .brand-pick { max-width: 120px; }
+  .brand-pick { max-width: 112px; }
   .plist { grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); }
   .pc-img { width: 52px; height: 52px; }
   .fs-card { padding: var(--sp-5) var(--sp-4); }
@@ -170,3 +170,8 @@ table.fs tr.total td { box-shadow: inset 0 1px 0 var(--line-2), inset 0 -4px 0 v
 @media (prefers-reduced-motion: reduce) {
   .pc-qty.bump { animation: none; }
 }
+
+/* camera barcode scan (sell page): the live picture with a frame to aim at */
+.scan-box { position: relative; border-radius: var(--r-lg); overflow: hidden; background: var(--media-bg); aspect-ratio: 4 / 3; }
+.scan-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-frame { position: absolute; inset: 22% 12%; border-radius: var(--r-md); box-shadow: 0 0 0 2px var(--media-ink), 0 0 0 999px color-mix(in srgb, var(--media-bg) 45%, transparent); }

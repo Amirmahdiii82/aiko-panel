@@ -15,6 +15,12 @@ const MODES = {
   buy: { label: "خرید کالا", ico: "truck", title: "فاکتور خرید", hint: "کالایی که خریدید را انتخاب کنید یا نام کالای جدید را بنویسید" },
 };
 const needsStock = (p) => p.stock <= p.low_stock;
+// what this device sold lately, newest first (kept per device: a seller's phone learns their usual products)
+const RECENT_KEY = "erp.sell.recent", RECENT_MAX = 16;
+const recentIds = () => (Array.isArray(storage(RECENT_KEY)) ? storage(RECENT_KEY) : []);
+const remember = (ids) => storage(RECENT_KEY, [...new Set([...ids, ...recentIds()])].slice(0, RECENT_MAX));
+// the camera can read barcodes only where the browser ships a detector (Chrome on Android); elsewhere no button
+const canScan = () => "BarcodeDetector" in window && !!navigator.mediaDevices?.getUserMedia;
 
 export async function render(view, params, { setTitle, query }) {
   const admin = isAdmin();
@@ -23,7 +29,7 @@ export async function render(view, params, { setTitle, query }) {
   const carts = { sell: new Map(), buy: new Map() };      // key -> line; key is a product id or "new-N"
   let newKey = 1;
   let q = "", brand = "";
-  const shelfOf = { sell: storage("erp.sell.shelf") || "all", buy: "need" };
+  const shelfOf = { sell: storage("erp.sell.shelf") || (recentIds().length ? "recent" : "all"), buy: "need" };
   const channelOpts = (admin
     ? ["in_person", "instagram", "agent", "website", "other"]
     : ["agent", "in_person", "instagram", "other"]).map((c) => ({ value: c, label: erp.me.channels[c], icon: CHANNEL_ICON[c] }));
@@ -45,7 +51,8 @@ export async function render(view, params, { setTitle, query }) {
         <div class="card tight pos-search">
           <div class="row nowrap">
             <div class="input-wrap" style="flex:1;min-width:0">${icon("search")}<input enterkeyhint="go" class="input" id="q" autocomplete="off"
-              placeholder="نام، برند یا کد محصول…" title="Enter: افزودن اولین نتیجه" aria-label="جستجوی محصول"></div>
+              placeholder="نام، برند یا کد…" title="Enter: افزودن اولین نتیجه" aria-label="جستجوی محصول"></div>
+            ${canScan() ? html`<button class="btn icon soft" id="scan" type="button" aria-label="اسکن بارکد با دوربین" title="اسکن بارکد">${icon("scan-barcode")}</button>` : ""}
             <select class="select brand-pick" id="brand" aria-label="برند"></select>
           </div>
           <div class="chips scroll mt12" id="shelves"></div>
@@ -69,7 +76,8 @@ export async function render(view, params, { setTitle, query }) {
       ? [{ key: "need", label: "نیاز به خرید", ico: "triangle-alert", test: needsStock },
          { key: "all", label: "همه" },
          { key: "top", label: "پرفروش", ico: "flame", test: (p) => (p.sold_30 || 0) > 0 }]
-      : [{ key: "all", label: "همه" },
+      : [...(recentIds().some((id) => byId(id)) ? [{ key: "recent", label: "اخیر", ico: "history", test: (p) => recentIds().includes(p.id) }] : []),
+         { key: "all", label: "همه" },
          { key: "top", label: "پرفروش ۳۰ روز", ico: "flame", test: (p) => (p.sold_30 || 0) > 0 },
          { key: "instock", label: "موجود", ico: "circle-check", test: (p) => p.stock > 0 }];
     return [...base, ...cats.map((c) => ({ key: `cat:${c}`, label: c, test: (p) => p.category === c }))];
@@ -84,7 +92,7 @@ export async function render(view, params, { setTitle, query }) {
     })}`);
     const brands = [...new Set(products.map((p) => p.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fa"));
     const sel = $("#brand", view);
-    sel.innerHTML = String(selectOptions(brands.map((b) => ({ value: b, label: b })), brand, "همه برندها"));
+    sel.innerHTML = String(selectOptions(brands.map((b) => ({ value: b, label: b })), brand, "برند"));
     sel.classList.toggle("hidden", brands.length < 2);
   }
   function filtered() {
@@ -99,6 +107,7 @@ export async function render(view, params, { setTitle, query }) {
       return list.sort((a, b) => exact(b) - exact(a) || (a.stock - a.low_stock) - (b.stock - b.low_stock) || (b.sold_30 || 0) - (a.sold_30 || 0) || a.name.localeCompare(b.name, "fa"));
     }
     if (shelfOf.sell === "top" && !terms.length) return list.sort((a, b) => (b.sold_30 || 0) - (a.sold_30 || 0));
+    if (shelfOf.sell === "recent" && !terms.length) { const r = recentIds(); return list.sort((a, b) => r.indexOf(a.id) - r.indexOf(b.id)); }
     return list.sort((a, b) => exact(b) - exact(a) || (b.stock > 0) - (a.stock > 0) || (b.sold_30 || 0) - (a.sold_30 || 0) || a.name.localeCompare(b.name, "fa"));
   }
   function card(p) {
@@ -313,6 +322,12 @@ export async function render(view, params, { setTitle, query }) {
     drawShelves(); drawTiles();
   });
   delegate(tilesEl, "click", "[data-add]", (e, el) => add(Number(el.dataset.add)));
+  $("#scan", view)?.addEventListener("click", () => scanBarcodes((code) => {
+    const hit = products.find((p) => p.sku && norm(p.sku) === norm(code));
+    if (hit) { add(hit.id); toast(`«${hit.name}» اضافه شد`); return true; }
+    toast(`محصولی با کد ${code} پیدا نشد`, "error");
+    return false;
+  }));
   delegate(tilesEl, "click", "[data-new]", () => addNew(q));
   delegate(cartEl, "click", "[data-inc]", (e, el) => add(lineKey(el), 1));
   delegate(cartEl, "click", "[data-dec]", (e, el) => add(lineKey(el), -1));
@@ -369,6 +384,7 @@ export async function render(view, params, { setTitle, query }) {
     return busy(async () => {
       const body = { ...meta.sell, items: [...cart().entries()].map(([product_id, l]) => ({ product_id, qty: l.qty, unit_price: l.unit_price })) };
       const res = await api("/api/erp/sales", { method: "POST", body });
+      remember(body.items.map((i) => i.product_id).filter((id) => typeof id === "number"));
       const detail = await api(`/api/erp/sales/${res.id}`);
       cart().clear();
       meta.sell = { ...fresh.sell(), channel: meta.sell.channel, account_id: meta.sell.account_id, date: meta.sell.date, seller_id: meta.sell.seller_id };
@@ -475,4 +491,43 @@ export async function render(view, params, { setTitle, query }) {
   if (admin) setMode(mode); else { drawShelves(); drawTiles(); drawCart(); }
   if (window.innerWidth > 900) $("#q", view).focus();
   return () => { offLive(); io.disconnect(); document.removeEventListener("keydown", keyHandler); window.removeEventListener("resize", onResize); };
+}
+
+/** Read barcodes with the camera until the sheet is closed. onCode(code) returns true when it used the code; the
+ *  same code is ignored for a moment so one box held in front of the camera is not added five times. */
+function scanBarcodes(onCode) {
+  let stream = null, stopped = false, last = "", lastAt = 0;
+  const s = sheet({
+    title: "اسکن بارکد",
+    body: `<div class="scan-box"><video class="scan-video" playsinline muted></video><div class="scan-frame" aria-hidden="true"></div></div>
+      <p class="small muted mt12">بارکد را جلوی دوربین بگیرید؛ هر محصول پیدا‌شده به سبد اضافه می‌شود.</p>`,
+    foot: `<button class="btn soft" data-close>تمام</button>`,
+    focus: false,
+    onClose: () => { stopped = true; stream?.getTracks().forEach((t) => t.stop()); },
+  });
+  const video = s.root.querySelector(".scan-video");
+  (async () => {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+      if (stopped) { stream.getTracks().forEach((t) => t.stop()); return; }
+      video.srcObject = stream;
+      await video.play();
+      const detector = new window.BarcodeDetector();
+      const tick = async () => {
+        if (stopped) return;
+        try {
+          const codes = await detector.detect(video);
+          const code = codes[0]?.rawValue?.trim();
+          if (code && (code !== last || performance.now() - lastAt > 2500)) {
+            last = code; lastAt = performance.now();
+            if (onCode(code) && navigator.vibrate) navigator.vibrate(30);
+          }
+        } catch (e) { /* a frame that is not ready yet */ }
+        setTimeout(tick, 250);
+      };
+      tick();
+    } catch (e) {
+      s.root.querySelector(".scan-box").outerHTML = `<p class="small">دوربین در دسترس نیست. اجازه دسترسی به دوربین را در مرورگر بدهید یا کد را در جستجو بنویسید.</p>`;
+    }
+  })();
 }
